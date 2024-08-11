@@ -6,6 +6,8 @@ from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import GetAssetsRequest
 from alpaca.trading.requests import GetOrdersRequest
 from alpaca.trading.enums import QueryOrderStatus
+from alpaca.trading.requests import MarketOrderRequest
+from alpaca.trading.enums import OrderSide, TimeInForce
 
 # Load environment variables from .env file
 load_dotenv()
@@ -19,16 +21,15 @@ class Trading:
         if live:
             self.apiKey = os.getenv("API_KEY_ID")
             self.secretKey = os.getenv("API_SECRET_KEY")
-
-            # Alpaca API endpoint
             self.apiBase = "https://api.alpaca.markets"
 
         else:
             self.apiKey = os.getenv("PAPER_API_KEY_ID")
             self.secretKey = os.getenv("PAPER_API_SECRET_KEY")
-
-            # Alpaca API endpoint
             self.apiBase = "https://paper-api.alpaca.markets"
+
+        
+        self.trading_client = TradingClient(self.apiKey, self.secretKey, paper = not live)
 
 
     
@@ -38,7 +39,7 @@ class Trading:
             "APCA-API-SECRET-KEY": self.secretKey
         }
         
-        self.trading_client = TradingClient('api-key', 'secret-key')
+
 
 
     def requestAccount(self):
@@ -75,21 +76,40 @@ class Trading:
 
         return False
 
+    def setMarketOrder(self, ticker, quantity):
+        if self.checkTradable(ticker):
+            market_order_data = MarketOrderRequest(
+                        symbol=ticker,
+                        qty=quantity,
+                        side=OrderSide.BUY,
+                        time_in_force=TimeInForce.DAY
+                        )
+
+            # Market order
+            market_order = self.trading_client.submit_order(
+                        order_data=market_order_data
+                        )
+
+            print(market_order)
+
+        
+
     def getOrders(self):
         get_orders_data = GetOrdersRequest(
-            status=QueryOrderStatus.CLOSED,
-            limit=100,
-            nested=True  # show nested multi-leg orders
-        )
+        status=QueryOrderStatus.CLOSED,
+        limit=5,
+        nested=True  # show nested multi-leg orders
+    )
 
         orders = self.trading_client.get_orders(filter=get_orders_data)
-
-        print(orders)
+        print(f"Orders: {orders}")
 
 
 
 if __name__ == "__main__":
     trading = Trading()
-    trading.requestAccount()
-    trading.getOrders()
-    # trading.checkTradable("AAPL")
+    #trading.requestAccount()
+    #trading.setMarketOrder("AAPL", 1)
+    #trading.getOrders()
+
+    trading.getBalanceChange()
