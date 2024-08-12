@@ -16,7 +16,9 @@ import ta
 import pandas as pd
 pd.set_option('display.max_rows', None) 
 pd.set_option('display.max_columns', None)  
+import ta.trend
 import ta.volatility
+from datetime import datetime, time, timezone
 
 # Load environment variables from .env file
 load_dotenv()
@@ -148,6 +150,47 @@ class Trading:
             print(data, file = file)
 
         print(data)
+
+    def getStockDataDaily(self, ticker):
+        requestDaily = StockBarsRequest(
+            symbol_or_symbols=ticker,  
+            timeframe=TimeFrame.Day,   
+            start=datetime.now()-datetime.timedelta(days=14, seconds=0, microseconds=0, milliseconds=0, minutes=0, hours=0),        
+            end=datetime.now()         
+        )
+
+        barsDaily = self.historical_client.get_stock_bars(requestDaily)
+
+        dataDaily = []
+        for bar in barsDaily[ticker]:
+            dataDaily.append({
+                'timestamp': bar.timestamp,
+                'open': bar.open,
+                'high': bar.high,
+                'low': bar.low,
+                'close': bar.close,
+                'volume': bar.volume,
+            })
+
+
+        dataDaily = pd.DataFrame(dataDaily)
+        dataDaily['Bollinger_High'] = ta.volatility.BollingerBands(close=dataDaily['close'], window=20, window_dev=2).bollinger_hband()
+        dataDaily['Bollinger_Med'] = ta.volatility.BollingerBands(close=dataDaily['close'], window=20, window_dev=2).bollinger_mavg()
+        dataDaily['Bollinger_Low'] = ta.volatility.BollingerBands(close=dataDaily['close'], window=20, window_dev=2).bollinger_lband()
+        dataDaily["SMA"] = ta.trend.SMAIndicator(dataDaily['close'], window=14).sma_indicator()
+
+
+        return dataDaily
+
+
+
+    def start(self):
+        tickers = ['AAPL', 'XOM', 'CVX', 'JNJ', 'PFE', 'JPM', 'GS', 'NVDA']
+
+        while True:
+            time.sleep(10)
+
+
 
 
 
