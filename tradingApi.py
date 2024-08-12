@@ -151,7 +151,7 @@ class Trading:
 
         print(data)
 
-    def getStockDataDaily(self, ticker):
+    def getStockData(self, ticker):
         requestDaily = StockBarsRequest(
             symbol_or_symbols=ticker,  
             timeframe=TimeFrame.Day,   
@@ -179,9 +179,37 @@ class Trading:
         dataDaily['Bollinger_Low'] = ta.volatility.BollingerBands(close=dataDaily['close'], window=20, window_dev=2).bollinger_lband()
         dataDaily["SMA"] = ta.trend.SMAIndicator(dataDaily['close'], window=14).sma_indicator()
 
-
         return dataDaily
+    
+    def getBollinger(self, ticker):
+        request = StockBarsRequest(
+        symbol_or_symbols=ticker,  
+        timeframe=TimeFrame.Hour,   
+        start=datetime.now()-datetime.timedelta(days=14, seconds=0, microseconds=0, milliseconds=0, minutes=0, hours=0),        
+        end=datetime.now()         
+        )
 
+        barsDaily = self.historical_client.get_stock_bars(request)
+
+        dataHourly = []
+        for bar in barsDaily[ticker]:
+            dataHourly.append({
+                'timestamp': bar.timestamp,
+                'open': bar.open,
+                'high': bar.high,
+                'low': bar.low,
+                'close': bar.close,
+                'volume': bar.volume,
+            })
+
+
+        dataHourly = pd.DataFrame(dataHourly)
+        dataHourly['Bollinger_High'] = ta.volatility.BollingerBands(close=dataHourly['close'], window=20, window_dev=2).bollinger_hband()
+        dataHourly['Bollinger_Med'] = ta.volatility.BollingerBands(close=dataHourly['close'], window=20, window_dev=2).bollinger_mavg()
+        dataHourly['Bollinger_Low'] = ta.volatility.BollingerBands(close=dataHourly['close'], window=20, window_dev=2).bollinger_lband()
+
+        
+        return dataHourly
 
 
     def start(self):
