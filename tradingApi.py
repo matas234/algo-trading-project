@@ -14,6 +14,9 @@ from alpaca.data.timeframe import TimeFrame
 
 import ta
 import pandas as pd
+pd.set_option('display.max_rows', None) 
+pd.set_option('display.max_columns', None)  
+import ta.volatility
 
 # Load environment variables from .env file
 load_dotenv()
@@ -117,14 +120,34 @@ class Trading:
         request = StockBarsRequest(
             symbol_or_symbols="AAPL",  # Single symbol or list of symbols
             timeframe=TimeFrame.Day,   # TimeFrame options: Minute, Hour, Day, Week, Month
-            start="2023-07-01",        # Start date for the data
+            start="2023-02-14",        # Start date for the data
             end="2023-08-01"           # End date for the data
         )
 
 
         bars = self.historical_client.get_stock_bars(request)
+        data = []
+        for bar in bars['AAPL']:
+            data.append({
+                'timestamp': bar.timestamp,
+                'open': bar.open,
+                'high': bar.high,
+                'low': bar.low,
+                'close': bar.close,
+                'volume': bar.volume,
+            })
 
-        print(bars)
+        data = pd.DataFrame(data)
+
+        data['Bollinger_High'] = ta.volatility.BollingerBands(close=data['close'], window=20, window_dev=2).bollinger_hband()
+        data['Bollinger_Med'] = ta.volatility.BollingerBands(close=data['close'], window=20, window_dev=2).bollinger_mavg()
+        data['Bollinger_Low'] = ta.volatility.BollingerBands(close=data['close'], window=20, window_dev=2).bollinger_lband()
+        data["SMA"] = ta.trend.SMAIndicator(data['close'], window=14).sma_indicator()
+        
+        with open('out.txt', 'w') as file:
+            print(data, file = file)
+
+        print(data)
 
 
 
