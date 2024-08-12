@@ -3,11 +3,17 @@ import requests
 import os
 from dotenv import load_dotenv
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import GetAssetsRequest
-from alpaca.trading.requests import GetOrdersRequest
+
+from alpaca.trading.requests import GetAssetsRequest, GetOrdersRequest
 from alpaca.trading.enums import QueryOrderStatus
 from alpaca.trading.requests import MarketOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockBarsRequest
+from alpaca.data.timeframe import TimeFrame
+
+import ta
+import pandas as pd
 
 # Load environment variables from .env file
 load_dotenv()
@@ -30,6 +36,8 @@ class Trading:
 
         
         self.trading_client = TradingClient(self.apiKey, self.secretKey, paper = not live)
+
+        self.historical_client = StockHistoricalDataClient(self.apiKey, self.secretKey)
 
 
     
@@ -104,6 +112,21 @@ class Trading:
         orders = self.trading_client.get_orders(filter=get_orders_data)
         print(f"Orders: {orders}")
 
+    
+    def test(self):
+        request = StockBarsRequest(
+            symbol_or_symbols="AAPL",  # Single symbol or list of symbols
+            timeframe=TimeFrame.Day,   # TimeFrame options: Minute, Hour, Day, Week, Month
+            start="2023-07-01",        # Start date for the data
+            end="2023-08-01"           # End date for the data
+        )
+
+
+        bars = self.historical_client.get_stock_bars(request)
+
+        print(bars)
+
+
 
 
 if __name__ == "__main__":
@@ -111,5 +134,6 @@ if __name__ == "__main__":
     #trading.requestAccount()
     #trading.setMarketOrder("AAPL", 1)
     #trading.getOrders()
+   # trading.getBalanceChange()
 
-    trading.getBalanceChange()
+    trading.test()
