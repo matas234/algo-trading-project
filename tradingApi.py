@@ -14,11 +14,15 @@ from alpaca.data.timeframe import TimeFrame
 
 import ta
 import pandas as pd
+
 pd.set_option('display.max_rows', None) 
 pd.set_option('display.max_columns', None)  
+pd.set_option('display.max_columns', None) 
+pd.set_option('display.width', None)        # Auto-adjust the width based on the content
+pd.set_option('display.max_colwidth', None) # Show full content of each column
 import ta.trend
 import ta.volatility
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timezone, timedelta
 
 # Load environment variables from .env file
 load_dotenv()
@@ -155,7 +159,7 @@ class Trading:
         requestDaily = StockBarsRequest(
             symbol_or_symbols=ticker,  
             timeframe=TimeFrame.Day,   
-            start=datetime.now()-datetime.timedelta(days=14, seconds=0, microseconds=0, milliseconds=0, minutes=0, hours=0),        
+            start=datetime.now()-timedelta(days=14, seconds=0, microseconds=0, milliseconds=0, minutes=0, hours=0),        
             end=datetime.now()         
         )
 
@@ -182,11 +186,12 @@ class Trading:
         return dataDaily
     
     def getBollinger(self, ticker):
+        offset = 75
         request = StockBarsRequest(
         symbol_or_symbols=ticker,  
         timeframe=TimeFrame.Hour,   
-        start=datetime.now()-datetime.timedelta(days=14, seconds=0, microseconds=0, milliseconds=0, minutes=0, hours=0),        
-        end=datetime.now()         
+        start=datetime.now()-timedelta(days=300) -timedelta(minutes=offset),        
+        end=datetime.now() -timedelta(minutes=offset)        
         )
 
         barsDaily = self.historical_client.get_stock_bars(request)
@@ -204,13 +209,71 @@ class Trading:
 
 
         dataHourly = pd.DataFrame(dataHourly)
-        dataHourly['Bollinger_High'] = ta.volatility.BollingerBands(close=dataHourly['close'], window=20, window_dev=2).bollinger_hband()
-        dataHourly['Bollinger_Med'] = ta.volatility.BollingerBands(close=dataHourly['close'], window=20, window_dev=2).bollinger_mavg()
-        dataHourly['Bollinger_Low'] = ta.volatility.BollingerBands(close=dataHourly['close'], window=20, window_dev=2).bollinger_lband()
+        bollinger = ta.volatility.BollingerBands(close=dataHourly['close'], window=20, window_dev=2)
 
+        #Calculate Bolllinger Bands for each hour
+        dataHourly['Bollinger_High'] = bollinger.bollinger_hband()
+        dataHourly['Bollinger_Med'] = bollinger.bollinger_mavg()
+        dataHourly['Bollinger_Low'] = bollinger.bollinger_lband()
+        dataHourly["SMA"] = ta.trend.SMAIndicator(dataHourly['close'], window=14).sma_indicator()
         
+
+        #Drop NaNs created from not enough data to calc bollinger band
+        dataHourly.dropna(inplace=True) 
+
+
+        #Create buy/sell signals for each hour
+        #shift by one so no lookahead bias
+        dataHourly['Buy_Signal'] = (dataHourly['close'] < dataHourly['Bollinger_Low'])
+        dataHourly['Sell_Signal'] = (dataHourly['close'] > dataHourly['Bollinger_High'])
+
+
+        #filter consective
+        dataHourly['Buy_Signal'] = dataHourly['Buy_Signal'] & ~dataHourly['Buy_Signal'].shift(1).fillna(False)
+        dataHourly['Sell_Signal'] = dataHourly['Sell_Signal'] & ~dataHourly['Sell_Signal'].shift(1).fillna(False)
+
+        print(dataHourly[['timestamp', 'close', 'Bollinger_Low', 'Bollinger_High', 'Buy_Signal', 'Sell_Signal']])
+        with open('out.txt', 'w') as file:
+            print(dataHourly, file = file)
+
+
         return dataHourly
 
+    def backtest_strategy(self, dataHourly, initial_cash=10000, position_size_percentage=1):
+        cash = initial_cash  # Starting cash
+        position = 0  # No position initially
+        
+        # Track trades and portfolio value
+        trades = []
+        
+        for index, row in dataHourly.iterrows():
+            if row['Buy_Signal'] and position == 0:
+                # Calculate the amount to invest
+                invest_amount = cash * position_size_percentage
+                # Calculate number of shares to buy
+                shares_to_buy = invest_amount / row['close']
+                # Update cash and position
+                cash -= invest_amount
+                position += shares_to_buy
+                trades.append({'Type': 'Buy', 'Price': row['close'], 'Shares': shares_to_buy, 'Timestamp': row['timestamp']})
+                print(f"Buying {shares_to_buy:.2f} shares at {row['close']} on {row['timestamp']}")
+            
+            elif row['Sell_Signal'] and position > 0:
+                # Sell all shares
+                sell_amount = position * row['close'] 
+                cash += sell_amount
+                trades.append({'Type': 'Sell', 'Price': row['close'], 'Shares': position, 'Timestamp': row['timestamp']})
+                print(f"Selling {position:.2f} shares at {row['close']} on {row['timestamp']}")
+                position = 0  # Reset position after selling
+        
+        # Final portfolio value
+        final_value = cash + position * dataHourly.iloc[-1]['close']
+        print(f"Final portfolio value: {final_value:.2f}")
+        
+        # Convert trades list to DataFrame for further analysis
+        trades_df = pd.DataFrame(trades)
+        
+        return trades_df, final_value
 
     def start(self):
         tickers = ['AAPL', 'XOM', 'CVX', 'JNJ', 'PFE', 'JPM', 'GS', 'NVDA']
@@ -230,4 +293,8 @@ if __name__ == "__main__":
     #trading.getOrders()
    # trading.getBalanceChange()
 
-    trading.test()
+    dataHourly = trading.getBollinger("AAPL")
+    trades_df, final_value = trading.backtest_strategy(dataHourly)
+
+    # Optionally save trades to a file
+    trades_df.to_csv('trades.csv', index=False)
