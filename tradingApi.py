@@ -20,6 +20,7 @@ pd.set_option('display.max_columns', None)
 pd.set_option('display.max_columns', None) 
 pd.set_option('display.width', None)        # Auto-adjust the width based on the content
 pd.set_option('display.max_colwidth', None) # Show full content of each column
+import ta.momentum
 import ta.trend
 import ta.volatility
 from datetime import datetime, time, timezone, timedelta
@@ -148,7 +149,7 @@ class Trading:
         data['Bollinger_High'] = ta.volatility.BollingerBands(close=data['close'], window=20, window_dev=2).bollinger_hband()
         data['Bollinger_Med'] = ta.volatility.BollingerBands(close=data['close'], window=20, window_dev=2).bollinger_mavg()
         data['Bollinger_Low'] = ta.volatility.BollingerBands(close=data['close'], window=20, window_dev=2).bollinger_lband()
-        data["SMA"] = ta.trend.SMAIndicator(data['close'], window=14).sma_indicator()
+        data["SMA"] = ta.trend.SMAIndicator(data['close'], window=200).sma_indicator()
         
         with open('out.txt', 'w') as file:
             print(data, file = file)
@@ -186,11 +187,11 @@ class Trading:
         return dataDaily
     
     def getBollinger(self, ticker):
-        offset = 75
+        offset = 240
         request = StockBarsRequest(
         symbol_or_symbols=ticker,  
         timeframe=TimeFrame.Hour,   
-        start=datetime.now()-timedelta(days=300) -timedelta(minutes=offset),        
+        start=datetime.now()-timedelta(days=365) -timedelta(minutes=offset),        
         end=datetime.now() -timedelta(minutes=offset)        
         )
 
@@ -215,17 +216,32 @@ class Trading:
         dataHourly['Bollinger_High'] = bollinger.bollinger_hband()
         dataHourly['Bollinger_Med'] = bollinger.bollinger_mavg()
         dataHourly['Bollinger_Low'] = bollinger.bollinger_lband()
-        dataHourly["SMA"] = ta.trend.SMAIndicator(dataHourly['close'], window=14).sma_indicator()
-        
+        dataHourly["SMA200"] = ta.trend.SMAIndicator(dataHourly['close'], window=200).sma_indicator()
+        dataHourly["RSI"] = ta.momentum.RSIIndicator(dataHourly['close'], window=14).rsi()
+
+        #dataHourly["MACD"] = ta.
 
         #Drop NaNs created from not enough data to calc bollinger band
         dataHourly.dropna(inplace=True) 
 
+        def identify_market_regime(row):
+            if row['close'] > row['SMA200'] and row['RSI'] > 50:  #row['close'] > row['200DMA'] and row['RSI'] > 50 and row['MACD'] > row['Signal Line']:
+                return 'Uptrend'
+            elif row['close'] < row['SMA200'] and row['RSI'] < 50:   ##row['close'] < row['200DMA'] and row['RSI'] < 50 and row['MACD'] < row['Signal Line']:
+                return 'Downtrend'
+            else:
+                return 'Range'
+            
+        dataHourly['Regime'] = dataHourly.apply(identify_market_regime, axis=1)
+
+
 
         #Create buy/sell signals for each hour
         #shift by one so no lookahead bias
-        dataHourly['Buy_Signal'] = (dataHourly['close'] < dataHourly['Bollinger_Low'])
-        dataHourly['Sell_Signal'] = (dataHourly['close'] > dataHourly['Bollinger_High'])
+        dataHourly['Buy_Signal'] = (dataHourly['close'] < dataHourly['Bollinger_Low']) & dataHourly['Regime']=='Uptrend'
+        dataHourly['Sell_Signal'] = (dataHourly['close'] > dataHourly['Bollinger_High']) & dataHourly['Regime']=='Downtrend'
+        dataHourly['Buy_Signal_bol'] = (dataHourly['close'] < dataHourly['Bollinger_Low']) 
+        dataHourly['Buy_Signal_new'] = dataHourly['Regime']=='Uptrend'
 
 
         #filter consective
@@ -294,6 +310,7 @@ if __name__ == "__main__":
    # trading.getBalanceChange()
 
     dataHourly = trading.getBollinger("AAPL")
+
     trades_df, final_value = trading.backtest_strategy(dataHourly)
 
     # Optionally save trades to a file
