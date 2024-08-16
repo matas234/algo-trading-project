@@ -122,69 +122,37 @@ class Trading:
         orders = self.trading_client.get_orders(filter=get_orders_data)
         print(f"Orders: {orders}")
 
-    
-    def test(self):
-        request = StockBarsRequest(
-            symbol_or_symbols="AAPL",  # Single symbol or list of symbols
-            timeframe=TimeFrame.Day,   # TimeFrame options: Minute, Hour, Day, Week, Month
-            start="2023-02-14",        # Start date for the data
-            end="2023-08-01"           # End date for the data
-        )
 
 
-        bars = self.historical_client.get_stock_bars(request)
-        data = []
-        for bar in bars['AAPL']:
-            data.append({
-                'timestamp': bar.timestamp,
-                'open': bar.open,
-                'high': bar.high,
-                'low': bar.low,
-                'close': bar.close,
-                'volume': bar.volume,
-            })
+    # def getStockData(self, ticker):
+    #     requestDaily = StockBarsRequest(
+    #         symbol_or_symbols=ticker,  
+    #         timeframe=TimeFrame.Day,   
+    #         start=datetime.now()-timedelta(days=14, seconds=0, microseconds=0, milliseconds=0, minutes=0, hours=0),        
+    #         end=datetime.now()         
+    #     )
 
-        data = pd.DataFrame(data)
+    #     barsDaily = self.historical_client.get_stock_bars(requestDaily)
 
-        data['Bollinger_High'] = ta.volatility.BollingerBands(close=data['close'], window=20, window_dev=2).bollinger_hband()
-        data['Bollinger_Med'] = ta.volatility.BollingerBands(close=data['close'], window=20, window_dev=2).bollinger_mavg()
-        data['Bollinger_Low'] = ta.volatility.BollingerBands(close=data['close'], window=20, window_dev=2).bollinger_lband()
-        data["SMA"] = ta.trend.SMAIndicator(data['close'], window=200).sma_indicator()
-        
-        with open('out.txt', 'w') as file:
-            print(data, file = file)
-
-        print(data)
-
-    def getStockData(self, ticker):
-        requestDaily = StockBarsRequest(
-            symbol_or_symbols=ticker,  
-            timeframe=TimeFrame.Day,   
-            start=datetime.now()-timedelta(days=14, seconds=0, microseconds=0, milliseconds=0, minutes=0, hours=0),        
-            end=datetime.now()         
-        )
-
-        barsDaily = self.historical_client.get_stock_bars(requestDaily)
-
-        dataDaily = []
-        for bar in barsDaily[ticker]:
-            dataDaily.append({
-                'timestamp': bar.timestamp,
-                'open': bar.open,
-                'high': bar.high,
-                'low': bar.low,
-                'close': bar.close,
-                'volume': bar.volume,
-            })
+    #     dataDaily = []
+    #     for bar in barsDaily[ticker]:
+    #         dataDaily.append({
+    #             'timestamp': bar.timestamp,
+    #             'open': bar.open,
+    #             'high': bar.high,
+    #             'low': bar.low,
+    #             'close': bar.close,
+    #             'volume': bar.volume,
+    #         })
 
 
-        dataDaily = pd.DataFrame(dataDaily)
-        dataDaily['Bollinger_High'] = ta.volatility.BollingerBands(close=dataDaily['close'], window=20, window_dev=2).bollinger_hband()
-        dataDaily['Bollinger_Med'] = ta.volatility.BollingerBands(close=dataDaily['close'], window=20, window_dev=2).bollinger_mavg()
-        dataDaily['Bollinger_Low'] = ta.volatility.BollingerBands(close=dataDaily['close'], window=20, window_dev=2).bollinger_lband()
-        dataDaily["SMA"] = ta.trend.SMAIndicator(dataDaily['close'], window=14).sma_indicator()
+    #     dataDaily = pd.DataFrame(dataDaily)
+    #     dataDaily['Bollinger_High'] = ta.volatility.BollingerBands(close=dataDaily['close'], window=20, window_dev=2).bollinger_hband()
+    #     dataDaily['Bollinger_Med'] = ta.volatility.BollingerBands(close=dataDaily['close'], window=20, window_dev=2).bollinger_mavg()
+    #     dataDaily['Bollinger_Low'] = ta.volatility.BollingerBands(close=dataDaily['close'], window=20, window_dev=2).bollinger_lband()
+    #     dataDaily["SMA"] = ta.trend.SMAIndicator(dataDaily['close'], window=14).sma_indicator()
 
-        return dataDaily
+    #     return dataDaily
     
     def getBollinger(self, ticker):
         offset = 240
@@ -216,8 +184,8 @@ class Trading:
         dataHourly['Bollinger_High'] = bollinger.bollinger_hband()
         dataHourly['Bollinger_Med'] = bollinger.bollinger_mavg()
         dataHourly['Bollinger_Low'] = bollinger.bollinger_lband()
-        dataHourly["SMA200"] = ta.trend.SMAIndicator(dataHourly['close'], window=200).sma_indicator()
-        dataHourly["RSI"] = ta.momentum.RSIIndicator(dataHourly['close'], window=14).rsi()
+        dataHourly["SMA200"] = ta.trend.SMAIndicator(dataHourly['close'], window=2000).sma_indicator()
+        dataHourly["RSI"] = ta.momentum.RSIIndicator(dataHourly['close'], window=200).rsi()
 
         #dataHourly["MACD"] = ta.
 
@@ -225,62 +193,95 @@ class Trading:
         dataHourly.dropna(inplace=True) 
 
         def identify_market_regime(row):
-            if row['close'] > row['SMA200'] and row['RSI'] > 50:  #row['close'] > row['200DMA'] and row['RSI'] > 50 and row['MACD'] > row['Signal Line']:
+            if row['close'] > row['SMA200']: #and row['RSI'] > 50:  #row['close'] > row['200DMA'] and row['RSI'] > 50 and row['MACD'] > row['Signal Line']:
                 return 'Uptrend'
-            elif row['close'] < row['SMA200'] and row['RSI'] < 50:   ##row['close'] < row['200DMA'] and row['RSI'] < 50 and row['MACD'] < row['Signal Line']:
+            elif row['close'] < row['SMA200']: #and row['RSI'] < 50:   ##row['close'] < row['200DMA'] and row['RSI'] < 50 and row['MACD'] < row['Signal Line']:
                 return 'Downtrend'
             else:
                 return 'Range'
             
         dataHourly['Regime'] = dataHourly.apply(identify_market_regime, axis=1)
 
+        dataHourly['timestamp'] = pd.to_datetime(dataHourly['timestamp'])
+        dataHourly.set_index('timestamp', inplace=True)
 
+        # Calculate the daily market regime by taking the mode for each day
+        def daily_market_regime(group):
+            return group['Regime'].mode().iloc[0] if not group['Regime'].mode().empty else 'Unknown'
 
+        # Group by day and calculate daily regime
+        daily_regimes = dataHourly.groupby(dataHourly.index.date).apply(daily_market_regime).reset_index()
+        daily_regimes.columns = ['Date', 'Daily_Regime']
+
+        # Merge daily regimes back into hourly data
+        dataHourly['Date'] = dataHourly.index.date
+        dataHourly = dataHourly.merge(daily_regimes, left_on='Date', right_on='Date', how='left')
+
+        # Clean up DataFrame
+        dataHourly.drop(columns=['Date'], inplace=True)
+        
         #Create buy/sell signals for each hour
         #shift by one so no lookahead bias
-        dataHourly['Buy_Signal'] = (dataHourly['close'] < dataHourly['Bollinger_Low']) & dataHourly['Regime']=='Uptrend'
-        dataHourly['Sell_Signal'] = (dataHourly['close'] > dataHourly['Bollinger_High']) & dataHourly['Regime']=='Downtrend'
-        dataHourly['Buy_Signal_bol'] = (dataHourly['close'] < dataHourly['Bollinger_Low']) 
-        dataHourly['Buy_Signal_new'] = dataHourly['Regime']=='Uptrend'
+        dataHourly['Buy_Signal'] = (dataHourly['close'] < dataHourly['Bollinger_Low']) & (dataHourly['Daily_Regime']=='Uptrend')
+        dataHourly['Sell_Signal'] = (dataHourly['close'] > dataHourly['Bollinger_High']) & (dataHourly['Daily_Regime']=='Downtrend')
+
+        dataHourly['Buy_Signal_Bollinger'] = dataHourly['close'] < dataHourly['Bollinger_Low']
+        dataHourly['Buy_Signal_Regime'] = dataHourly['Daily_Regime']=='Uptrend'
+
+        dataHourly['Sell_Signal_Bollinger'] = (dataHourly['close'] > dataHourly['Bollinger_High'])
+        dataHourly['Sell_Signal_Regime'] = (dataHourly['Daily_Regime']=='Downtrend')
+
+
+        # # Create a new column for buy signals considering the regime
+        # # If you want to keep RSI filtering but allow more flexibility
+        # dataHourly['Buy_Signal'] = (dataHourly['Buy_Signal_Bollinger']) & (dataHourly['Regime'] == 'Uptrend')
+
+        # # Optionally, you could have a less restrictive buy signal
+        # # Buy if below Bollinger Low, regardless of RSI
+        # dataHourly['Buy_Signal_Less_Restrictive'] = (dataHourly['close'] < dataHourly['Bollinger_Low'])
 
 
         #filter consective
         dataHourly['Buy_Signal'] = dataHourly['Buy_Signal'] & ~dataHourly['Buy_Signal'].shift(1).fillna(False)
         dataHourly['Sell_Signal'] = dataHourly['Sell_Signal'] & ~dataHourly['Sell_Signal'].shift(1).fillna(False)
 
-        print(dataHourly[['timestamp', 'close', 'Bollinger_Low', 'Bollinger_High', 'Buy_Signal', 'Sell_Signal']])
+        print(dataHourly)
         with open('out.txt', 'w') as file:
             print(dataHourly, file = file)
 
 
         return dataHourly
 
-    def backtest_strategy(self, dataHourly, initial_cash=10000, position_size_percentage=1):
+    def backtest_strategy(self, dataHourly, initial_cash=10000):
         cash = initial_cash  # Starting cash
         position = 0  # No position initially
-        
+        times = 0
+        percentage = 0.5
         # Track trades and portfolio value
         trades = []
         
         for index, row in dataHourly.iterrows():
-            if row['Buy_Signal'] and position == 0:
+
+            if row['Buy_Signal'] and times < 2:
                 # Calculate the amount to invest
-                invest_amount = cash * position_size_percentage
+                invest_amount = cash * percentage
                 # Calculate number of shares to buy
                 shares_to_buy = invest_amount / row['close']
                 # Update cash and position
                 cash -= invest_amount
                 position += shares_to_buy
-                trades.append({'Type': 'Buy', 'Price': row['close'], 'Shares': shares_to_buy, 'Timestamp': row['timestamp']})
-                print(f"Buying {shares_to_buy:.2f} shares at {row['close']} on {row['timestamp']}")
+                times+=1
+                trades.append({'Type': 'Buy', 'Price': row['close'], 'Shares': shares_to_buy})
+                print(f"Buying {shares_to_buy:.2f} shares at {row['close']}")
             
             elif row['Sell_Signal'] and position > 0:
                 # Sell all shares
                 sell_amount = position * row['close'] 
                 cash += sell_amount
-                trades.append({'Type': 'Sell', 'Price': row['close'], 'Shares': position, 'Timestamp': row['timestamp']})
-                print(f"Selling {position:.2f} shares at {row['close']} on {row['timestamp']}")
+                trades.append({'Type': 'Sell', 'Price': row['close'], 'Shares': position})
+                print(f"Selling {position:.2f} shares at {row['close']}")
                 position = 0  # Reset position after selling
+                times = 0
         
         # Final portfolio value
         final_value = cash + position * dataHourly.iloc[-1]['close']
