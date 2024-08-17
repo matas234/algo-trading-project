@@ -203,7 +203,7 @@ class Trading:
         dataHourly['Regime'] = dataHourly.apply(identify_market_regime, axis=1)
 
         dataHourly['timestamp'] = pd.to_datetime(dataHourly['timestamp'])
-        dataHourly.set_index('timestamp', inplace=True)
+        dataHourly = dataHourly.set_index('timestamp', drop=False)
 
         # Calculate the daily market regime by taking the mode for each day
         def daily_market_regime(group):
@@ -271,15 +271,15 @@ class Trading:
                 cash -= invest_amount
                 position += shares_to_buy
                 times+=1
-                trades.append({'Type': 'Buy', 'Price': row['close'], 'Shares': shares_to_buy})
-                print(f"Buying {shares_to_buy:.2f} shares at {row['close']}")
+                trades.append({'Type': 'Buy', 'Price': row['close'], 'Shares': shares_to_buy, 'Timestamp': row['timestamp']})
+                print(f"Buying {shares_to_buy:.2f} shares at {row['close']} on {row['timestamp']}")
             
             elif row['Sell_Signal'] and position > 0:
                 # Sell all shares
                 sell_amount = position * row['close'] 
                 cash += sell_amount
-                trades.append({'Type': 'Sell', 'Price': row['close'], 'Shares': position})
-                print(f"Selling {position:.2f} shares at {row['close']}")
+                trades.append({'Type': 'Sell', 'Price': row['close'], 'Shares': position, 'Timestamp': row['timestamp']})
+                print(f"Selling {position:.2f} shares at {row['close']} on {row['timestamp']}")
                 position = 0  # Reset position after selling
                 times = 0
         
