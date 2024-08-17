@@ -14,6 +14,7 @@ from alpaca.data.timeframe import TimeFrame
 
 import ta
 import pandas as pd
+import matplotlib.pyplot as plt
 
 pd.set_option('display.max_rows', None) 
 pd.set_option('display.max_columns', None)  
@@ -245,7 +246,7 @@ class Trading:
         dataHourly['Buy_Signal'] = dataHourly['Buy_Signal'] & ~dataHourly['Buy_Signal'].shift(1).fillna(False)
         dataHourly['Sell_Signal'] = dataHourly['Sell_Signal'] & ~dataHourly['Sell_Signal'].shift(1).fillna(False)
 
-        print(dataHourly)
+   #     print(dataHourly)
         with open('out.txt', 'w') as file:
             print(dataHourly, file = file)
 
@@ -311,6 +312,14 @@ if __name__ == "__main__":
    # trading.getBalanceChange()
 
     dataHourly = trading.getBollinger("AAPL")
+
+    x = dataHourly["timestamp"]
+    plt.plot(x, dataHourly["close"], label="price")
+    plt.plot(x, dataHourly["Bollinger_Low"], label="bol low")
+    plt.plot(x, dataHourly["Bollinger_High"], label="bol high")
+    plt.scatter(dataHourly.loc[dataHourly['Buy_Signal'], 'timestamp'], dataHourly.loc[dataHourly['Buy_Signal'], 'close'], marker='^', color='green', s=100, label='Buy Signal')
+    plt.legend()
+    plt.show()
 
     trades_df, final_value = trading.backtest_strategy(dataHourly)
 
