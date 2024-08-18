@@ -194,9 +194,9 @@ class Trading:
         dataHourly.dropna(inplace=True) 
 
         def identify_market_regime(row):
-            if row['close'] > row['SMA200'] and row['RSI'] > 50:  #row['close'] > row['200DMA'] and row['RSI'] > 50 and row['MACD'] > row['Signal Line']:
+            if row['close'] > row['SMA200'] and row['RSI'] > 40:  #row['close'] > row['200DMA'] and row['RSI'] > 50 and row['MACD'] > row['Signal Line']:
                 return 'Uptrend'
-            elif row['close'] < row['SMA200'] and row['RSI'] < 50:   ##row['close'] < row['200DMA'] and row['RSI'] < 50 and row['MACD'] < row['Signal Line']:
+            elif row['close'] < row['SMA200'] and row['RSI'] < 60:   ##row['close'] < row['200DMA'] and row['RSI'] < 50 and row['MACD'] < row['Signal Line']:
                 return 'Downtrend'
             else:
                 return 'Range'
@@ -211,28 +211,10 @@ class Trading:
                 
         dataHourly['Regime'] = dataHourly.apply(identify_market_regime, axis=1)
 
-        # dataHourly['timestamp'] = pd.to_datetime(dataHourly['timestamp'])
-        # dataHourly = dataHourly.set_index('timestamp', drop=False)
+        average_volume = dataHourly['volume'].rolling(window=20).mean()
 
-        # # Calculate the daily market regime by taking the mode for each day
-        # def daily_market_regime(group):
-        #     return group['Regime'].mode().iloc[0] if not group['Regime'].mode().empty else 'Unknown'
-
-        # # Group by day and calculate daily regime
-        # daily_regimes = dataHourly.groupby(dataHourly.index.date).apply(daily_market_regime).reset_index()
-        # daily_regimes.columns = ['Date', 'Daily_Regime']
-
-        # # Merge daily regimes back into hourly data
-        # dataHourly['Date'] = dataHourly.index.date
-        # dataHourly = dataHourly.merge(daily_regimes, left_on='Date', right_on='Date', how='left')
-
-        # # Clean up DataFrame
-        # dataHourly.drop(columns=['Date'], inplace=True)
-        
-        #Create buy/sell signals for each hour
-        #shift by one so no lookahead bias
-        dataHourly['Buy_Signal'] = (dataHourly['close'] < dataHourly['Bollinger_Low']) & (dataHourly['Regime']=='Uptrend')
-        dataHourly['Sell_Signal'] = (dataHourly['close'] > dataHourly['Bollinger_High']) & (dataHourly['Regime']=='Downtrend')
+        dataHourly['Buy_Signal'] = (dataHourly['close'] < dataHourly['Bollinger_Low']) & (dataHourly['Regime']=='Uptrend') #| (dataHourly['volume'] > 1.5*average_volume))
+        dataHourly['Sell_Signal'] = (dataHourly['close'] > dataHourly['Bollinger_High']) & (dataHourly['Regime']=='Downtrend') #| (dataHourly['volume'] > 1.5*average_volume))
 
         dataHourly['Buy_Signal_Bollinger'] = dataHourly['close'] < dataHourly['Bollinger_Low']
         dataHourly['Buy_Signal_Regime'] = dataHourly['Regime']=='Uptrend'
@@ -311,7 +293,9 @@ if __name__ == "__main__":
     #trading.getOrders()
    # trading.getBalanceChange()
 
-    dataHourly = trading.getBollinger("AAPL")
+    dataHourly = trading.getBollinger("TSLA")
+    ## AGI
+
 
     x = dataHourly["timestamp"]
 
