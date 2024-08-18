@@ -160,7 +160,7 @@ class Trading:
         request = StockBarsRequest(
         symbol_or_symbols=ticker,  
         timeframe=TimeFrame.Hour,   
-        start=datetime.now()-timedelta(days=365) -timedelta(minutes=offset),        
+        start=datetime.now()-timedelta(days=665) -timedelta(minutes=offset),        
         end=datetime.now() -timedelta(minutes=offset)        
         )
 
@@ -194,52 +194,52 @@ class Trading:
         dataHourly.dropna(inplace=True) 
 
         def identify_market_regime(row):
-            if row['close'] > row['SMA200']: #and row['RSI'] > 50:  #row['close'] > row['200DMA'] and row['RSI'] > 50 and row['MACD'] > row['Signal Line']:
+            if row['close'] > row['SMA200'] and row['RSI'] > 50:  #row['close'] > row['200DMA'] and row['RSI'] > 50 and row['MACD'] > row['Signal Line']:
                 return 'Uptrend'
-            elif row['close'] < row['SMA200']: #and row['RSI'] < 50:   ##row['close'] < row['200DMA'] and row['RSI'] < 50 and row['MACD'] < row['Signal Line']:
+            elif row['close'] < row['SMA200'] and row['RSI'] < 50:   ##row['close'] < row['200DMA'] and row['RSI'] < 50 and row['MACD'] < row['Signal Line']:
                 return 'Downtrend'
             else:
                 return 'Range'
-            
+
+        def identify_market_regime_RSI(row):
+            if row['RSI'] > 50:  #row['close'] > row['200DMA'] and row['RSI'] > 50 and row['MACD'] > row['Signal Line']:
+                return 'Uptrend'
+            elif row['RSI'] < 50:   ##row['close'] < row['200DMA'] and row['RSI'] < 50 and row['MACD'] < row['Signal Line']:
+                return 'Downtrend'
+            else:
+                return 'Range'
+                
         dataHourly['Regime'] = dataHourly.apply(identify_market_regime, axis=1)
 
-        dataHourly['timestamp'] = pd.to_datetime(dataHourly['timestamp'])
-        dataHourly = dataHourly.set_index('timestamp', drop=False)
+        # dataHourly['timestamp'] = pd.to_datetime(dataHourly['timestamp'])
+        # dataHourly = dataHourly.set_index('timestamp', drop=False)
 
-        # Calculate the daily market regime by taking the mode for each day
-        def daily_market_regime(group):
-            return group['Regime'].mode().iloc[0] if not group['Regime'].mode().empty else 'Unknown'
+        # # Calculate the daily market regime by taking the mode for each day
+        # def daily_market_regime(group):
+        #     return group['Regime'].mode().iloc[0] if not group['Regime'].mode().empty else 'Unknown'
 
-        # Group by day and calculate daily regime
-        daily_regimes = dataHourly.groupby(dataHourly.index.date).apply(daily_market_regime).reset_index()
-        daily_regimes.columns = ['Date', 'Daily_Regime']
+        # # Group by day and calculate daily regime
+        # daily_regimes = dataHourly.groupby(dataHourly.index.date).apply(daily_market_regime).reset_index()
+        # daily_regimes.columns = ['Date', 'Daily_Regime']
 
-        # Merge daily regimes back into hourly data
-        dataHourly['Date'] = dataHourly.index.date
-        dataHourly = dataHourly.merge(daily_regimes, left_on='Date', right_on='Date', how='left')
+        # # Merge daily regimes back into hourly data
+        # dataHourly['Date'] = dataHourly.index.date
+        # dataHourly = dataHourly.merge(daily_regimes, left_on='Date', right_on='Date', how='left')
 
-        # Clean up DataFrame
-        dataHourly.drop(columns=['Date'], inplace=True)
+        # # Clean up DataFrame
+        # dataHourly.drop(columns=['Date'], inplace=True)
         
         #Create buy/sell signals for each hour
         #shift by one so no lookahead bias
-        dataHourly['Buy_Signal'] = (dataHourly['close'] < dataHourly['Bollinger_Low']) & (dataHourly['Daily_Regime']=='Uptrend')
-        dataHourly['Sell_Signal'] = (dataHourly['close'] > dataHourly['Bollinger_High']) & (dataHourly['Daily_Regime']=='Downtrend')
+        dataHourly['Buy_Signal'] = (dataHourly['close'] < dataHourly['Bollinger_Low']) & (dataHourly['Regime']=='Uptrend')
+        dataHourly['Sell_Signal'] = (dataHourly['close'] > dataHourly['Bollinger_High']) & (dataHourly['Regime']=='Downtrend')
 
         dataHourly['Buy_Signal_Bollinger'] = dataHourly['close'] < dataHourly['Bollinger_Low']
-        dataHourly['Buy_Signal_Regime'] = dataHourly['Daily_Regime']=='Uptrend'
+        dataHourly['Buy_Signal_Regime'] = dataHourly['Regime']=='Uptrend'
 
         dataHourly['Sell_Signal_Bollinger'] = (dataHourly['close'] > dataHourly['Bollinger_High'])
-        dataHourly['Sell_Signal_Regime'] = (dataHourly['Daily_Regime']=='Downtrend')
+        dataHourly['Sell_Signal_Regime'] = (dataHourly['Regime']=='Downtrend')
 
-
-        # # Create a new column for buy signals considering the regime
-        # # If you want to keep RSI filtering but allow more flexibility
-        # dataHourly['Buy_Signal'] = (dataHourly['Buy_Signal_Bollinger']) & (dataHourly['Regime'] == 'Uptrend')
-
-        # # Optionally, you could have a less restrictive buy signal
-        # # Buy if below Bollinger Low, regardless of RSI
-        # dataHourly['Buy_Signal_Less_Restrictive'] = (dataHourly['close'] < dataHourly['Bollinger_Low'])
 
 
         #filter consective
@@ -314,14 +314,26 @@ if __name__ == "__main__":
     dataHourly = trading.getBollinger("AAPL")
 
     x = dataHourly["timestamp"]
-    plt.plot(x, dataHourly["close"], label="price")
-    plt.plot(x, dataHourly["Bollinger_Low"], label="bol low")
-    plt.plot(x, dataHourly["Bollinger_High"], label="bol high")
-    plt.scatter(dataHourly.loc[dataHourly['Buy_Signal'], 'timestamp'], dataHourly.loc[dataHourly['Buy_Signal'], 'close'], marker='^', color='green', s=100, label='Buy Signal')
-    plt.legend()
-    plt.show()
 
+    useBolinger = False
+
+    
     trades_df, final_value = trading.backtest_strategy(dataHourly)
 
     # Optionally save trades to a file
     trades_df.to_csv('trades.csv', index=False)
+
+
+    plt.plot(x, dataHourly["close"], label="price")
+    plt.plot(x, dataHourly["Bollinger_Low"], label="bol low")
+    plt.plot(x, dataHourly["Bollinger_High"], label="bol high")
+
+    if not useBolinger:
+        plt.scatter(dataHourly.loc[dataHourly['Buy_Signal'], 'timestamp'], dataHourly.loc[dataHourly['Buy_Signal'], 'close'], marker='^', color='green', s=100, label='Buy Signal')
+        plt.scatter(dataHourly.loc[dataHourly['Sell_Signal'], 'timestamp'], dataHourly.loc[dataHourly['Sell_Signal'], 'close'], marker='v', color='red', s=100, label='Sell Signal')
+    else:
+        plt.scatter(dataHourly.loc[dataHourly['Buy_Signal_Bollinger'], 'timestamp'], dataHourly.loc[dataHourly['Buy_Signal_Bollinger'], 'close'], marker='^', color='green', s=100, label='Buy Signal')
+        plt.scatter(dataHourly.loc[dataHourly['Sell_Signal_Bollinger'], 'timestamp'], dataHourly.loc[dataHourly['Sell_Signal_Bollinger'], 'close'], marker='v', color='red', s=100, label='Sell Signal')
+
+    plt.legend()
+    plt.show()
