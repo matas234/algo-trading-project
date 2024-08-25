@@ -50,6 +50,8 @@ class Trading:
 
         self.historical_client = StockHistoricalDataClient(self.apiKey, self.secretKey)
 
+        self.buy_price = {}
+        self.stop_loss_threshold = 0.50  # 10% loss threshold
 
     
         # Set up the headers with your API keys
@@ -242,11 +244,13 @@ class Trading:
         percentage = 0.5
         # Track trades and portfolio value
         trades = []
+        buy_price = None
         
         for index, row in dataHourly.iterrows():
 
             if row['Buy_Signal'] and times < 2:
-                # Calculate the amount to invest
+                buy_price = row['close']
+
                 invest_amount = cash * percentage
                 # Calculate number of shares to buy
                 shares_to_buy = invest_amount / row['close']
@@ -258,13 +262,23 @@ class Trading:
                 print(f"Buying {shares_to_buy:.2f} shares at {row['close']} on {row['timestamp']}")
             
             elif row['Sell_Signal'] and position > 0:
-                # Sell all shares
-                sell_amount = position * row['close'] 
-                cash += sell_amount
-                trades.append({'Type': 'Sell', 'Price': row['close'], 'Shares': position, 'Timestamp': row['timestamp']})
-                print(f"Selling {position:.2f} shares at {row['close']} on {row['timestamp']}")
-                position = 0  # Reset position after selling
-                times = 0
+                    minimum_selling_price = buy_price
+                    stop_loss_price = buy_price * self.stop_loss_threshold
+        
+                    current_price =  row['close']
+
+                    if current_price >= minimum_selling_price or current_price <= stop_loss_price:
+                        sell_amount = position * row['close'] 
+                        cash += sell_amount
+                        trades.append({'Type': 'Sell', 'Price': row['close'], 'Shares': position, 'Timestamp': row['timestamp']})
+                        print(f"Selling {position:.2f} shares at {row['close']} on {row['timestamp']}")
+                        position = 0  # Reset position after selling
+                        times = 0
+            
+                    # else:
+                    #     print(f"Holding. Current price {current_price} is below buy price {minimum_selling_price}.")
+
+
         
         # Final portfolio value
         final_value = cash + position * dataHourly.iloc[-1]['close']
@@ -274,6 +288,10 @@ class Trading:
         trades_df = pd.DataFrame(trades)
         
         return trades_df, final_value
+
+def sell(self,asset, quantity, current_price):
+
+
 
     def start(self):
         tickers = ['AAPL', 'XOM', 'CVX', 'JNJ', 'PFE', 'JPM', 'GS', 'NVDA']
