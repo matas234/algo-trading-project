@@ -130,7 +130,7 @@ class Trading:
         offset = 240
         request = StockBarsRequest(
         symbol_or_symbols=ticker,  
-        timeframe=TimeFrame.Hour,   
+        timeframe=TimeFrame.Minute,   
         start=datetime.now()-timedelta(days=365) -timedelta(minutes=offset),        
         end=datetime.now() -timedelta(minutes=offset)        
         )
@@ -202,8 +202,8 @@ class Trading:
         dataHourly['Sell_Signal'] = dataHourly['Sell_Signal'] & ~dataHourly['Sell_Signal'].shift(1).fillna(False)
 
    #     print(dataHourly)
-        with open('out.txt', 'w') as file:
-            print(dataHourly, file = file)
+        # with open('out.txt', 'w') as file:
+        #     print(dataHourly, file = file)
 
 
         return dataHourly
@@ -212,14 +212,14 @@ class Trading:
         cash = initial_cash  # Starting cash
         position = 0  # No position initially
         times = 0
-        percentage = 0.5
+        percentage = 1
         # Track trades and portfolio value
         trades = []
         buy_price = None
         
         for index, row in dataHourly.iterrows():
 
-            if row['Buy_Signal'] and times < 2:
+            if row['Buy_Signal'] and times < 1:
                 buy_price = row['close']
 
                 invest_amount = cash * percentage
@@ -233,7 +233,8 @@ class Trading:
                 print(f"Buying {shares_to_buy:.2f} shares at {row['close']} on {row['timestamp']}")
             
             elif row['Sell_Signal'] and position > 0:
-                    minimum_selling_price = buy_price * 1.20
+                    
+                    minimum_selling_price = buy_price 
                     stop_loss_price = buy_price * self.stop_loss_threshold
         
                     current_price =  row['close']
@@ -260,15 +261,30 @@ class Trading:
         
         return trades_df, final_value
 
-def sell(self,asset, quantity, current_price):
-
-
+# def sell(self,asset, quantity, current_price):
 
     def start(self):
-        tickers = ['AAPL', 'XOM', 'CVX', 'JNJ', 'PFE', 'JPM', 'GS', 'NVDA']
+        stocks = ["BILI","TSLA", "SBUX", "AAPL", "MSFT", "GOOGL", "AMZN", "NFLX", "JPM", "V", "DIS", "KO", "BRK.B", "JNJ", "PG", "XOM", "UNH"]
+        
+        average = 0
+        
+        with open("out.txt", "w+") as file:
 
-        while True:
-            time.sleep(10)
+            for stock in stocks:
+                print(stock)
+                dataHourly = self.getBollinger(stock)
+
+
+                trades_df, final_value = self.backtest_strategy(dataHourly)
+                # showGraph(dataHourly)
+
+                average +=final_value
+
+                print(stock, final_value, file=file)
+            
+            average /= len(stocks)
+
+            print(f"Average value: {average}")
 
 def showGraph(dataHourly):
     
@@ -300,25 +316,8 @@ if __name__ == "__main__":
     #trading.setMarketOrder("AAPL", 1)
     #trading.getOrders()
    # trading.getBalanceChange()
+    trading.start()
 
-    stocks = ["TSLA", "SBUX", "AAPL", "MSFT", "GOOGL", "AMZN", "NFLX", "NVDA", "JPM", "V", "DIS", "KO", "BRK.B", "JNJ", "PG", "XOM", "UNH"]
-
-
-    average = 0
-
-    for stock in stocks:
-        print(stock)
-        dataHourly = trading.getBollinger(stock)
-
-
-        trades_df, final_value = trading.backtest_strategy(dataHourly)
-        # showGraph(dataHourly)
-
-        average +=final_value
-    
-    average /= len(stocks)
-
-    print(f"Average value: {average}")
 
     ## AGI
 
