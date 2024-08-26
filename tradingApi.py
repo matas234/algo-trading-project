@@ -51,8 +51,8 @@ class Trading:
         self.historical_client = StockHistoricalDataClient(self.apiKey, self.secretKey)
 
         self.buy_price = {}
-        self.stop_loss_threshold = 0.90  # 10% loss threshold
-
+        self.stop_loss_threshold = 0.94 # 10% loss threshold
+        self.minPercentage = 0 
     
         # Set up the headers with your API keys
         self.headers = {
@@ -212,7 +212,6 @@ class Trading:
         cash = initial_cash  # Starting cash
         position = 0  # No position initially
         times = 0
-        percentage = 1
         # Track trades and portfolio value
         trades = []
         buy_price = None
@@ -222,7 +221,7 @@ class Trading:
             if row['Buy_Signal'] and times < 1:
                 buy_price = row['close']
 
-                invest_amount = cash * percentage
+                invest_amount = cash * (1 + (self.minPercentage/100))
                 # Calculate number of shares to buy
                 shares_to_buy = invest_amount / row['close']
                 # Update cash and position
@@ -263,11 +262,17 @@ class Trading:
 
 # def sell(self,asset, quantity, current_price):
 
-    def start(self):
+    def start(self, enableCrypto=True):
         stocks = ["BILI","TSLA", "SBUX", "AAPL", "MSFT", "GOOGL", "AMZN", "NFLX", "JPM", "V", "DIS", "KO", "BRK.B", "JNJ", "PG", "XOM", "UNH"]
-        
+        crypto = ["BTC","ETH"]
+
         average = 0
         
+        if enableCrypto:
+            self.stop_loss_threshold = 0.94
+            self.minPercentage = 5
+            stocks = crypto
+
         with open("out.txt", "w+") as file:
 
             for stock in stocks:
@@ -276,7 +281,7 @@ class Trading:
 
 
                 trades_df, final_value = self.backtest_strategy(dataHourly)
-                # showGraph(dataHourly)
+                showGraph(dataHourly)
 
                 average +=final_value
 
@@ -285,6 +290,7 @@ class Trading:
             average /= len(stocks)
 
             print(f"Average value: {average}")
+
 
 def showGraph(dataHourly):
     
