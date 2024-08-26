@@ -51,7 +51,7 @@ class Trading:
         self.historical_client = StockHistoricalDataClient(self.apiKey, self.secretKey)
 
         self.buy_price = {}
-        self.stop_loss_threshold = 0.50  # 10% loss threshold
+        self.stop_loss_threshold = 0.90  # 10% loss threshold
 
     
         # Set up the headers with your API keys
@@ -125,44 +125,13 @@ class Trading:
         orders = self.trading_client.get_orders(filter=get_orders_data)
         print(f"Orders: {orders}")
 
-
-
-    # def getStockData(self, ticker):
-    #     requestDaily = StockBarsRequest(
-    #         symbol_or_symbols=ticker,  
-    #         timeframe=TimeFrame.Day,   
-    #         start=datetime.now()-timedelta(days=14, seconds=0, microseconds=0, milliseconds=0, minutes=0, hours=0),        
-    #         end=datetime.now()         
-    #     )
-
-    #     barsDaily = self.historical_client.get_stock_bars(requestDaily)
-
-    #     dataDaily = []
-    #     for bar in barsDaily[ticker]:
-    #         dataDaily.append({
-    #             'timestamp': bar.timestamp,
-    #             'open': bar.open,
-    #             'high': bar.high,
-    #             'low': bar.low,
-    #             'close': bar.close,
-    #             'volume': bar.volume,
-    #         })
-
-
-    #     dataDaily = pd.DataFrame(dataDaily)
-    #     dataDaily['Bollinger_High'] = ta.volatility.BollingerBands(close=dataDaily['close'], window=20, window_dev=2).bollinger_hband()
-    #     dataDaily['Bollinger_Med'] = ta.volatility.BollingerBands(close=dataDaily['close'], window=20, window_dev=2).bollinger_mavg()
-    #     dataDaily['Bollinger_Low'] = ta.volatility.BollingerBands(close=dataDaily['close'], window=20, window_dev=2).bollinger_lband()
-    #     dataDaily["SMA"] = ta.trend.SMAIndicator(dataDaily['close'], window=14).sma_indicator()
-
-    #     return dataDaily
     
     def getBollinger(self, ticker):
         offset = 240
         request = StockBarsRequest(
         symbol_or_symbols=ticker,  
         timeframe=TimeFrame.Hour,   
-        start=datetime.now()-timedelta(days=665) -timedelta(minutes=offset),        
+        start=datetime.now()-timedelta(days=365) -timedelta(minutes=offset),        
         end=datetime.now() -timedelta(minutes=offset)        
         )
 
@@ -187,7 +156,7 @@ class Trading:
         dataHourly['Bollinger_High'] = bollinger.bollinger_hband()
         dataHourly['Bollinger_Med'] = bollinger.bollinger_mavg()
         dataHourly['Bollinger_Low'] = bollinger.bollinger_lband()
-        dataHourly["SMA200"] = ta.trend.SMAIndicator(dataHourly['close'], window=2000).sma_indicator()
+        dataHourly["SMA200"] = ta.trend.SMAIndicator(dataHourly['close'], window=200).sma_indicator()
         dataHourly["RSI"] = ta.momentum.RSIIndicator(dataHourly['close'], window=200).rsi()
 
         #dataHourly["MACD"] = ta.
@@ -215,11 +184,13 @@ class Trading:
 
         average_volume = dataHourly['volume'].rolling(window=20).mean()
 
-        dataHourly['Buy_Signal'] = (dataHourly['close'] < dataHourly['Bollinger_Low']) & (dataHourly['Regime']=='Uptrend') #| (dataHourly['volume'] > 1.5*average_volume))
-        dataHourly['Sell_Signal'] = (dataHourly['close'] > dataHourly['Bollinger_High']) & (dataHourly['Regime']=='Downtrend') #| (dataHourly['volume'] > 1.5*average_volume))
+        min_rows = 0 #Default
+
+        dataHourly['Buy_Signal'] =  (dataHourly['close'] < dataHourly['Bollinger_Low'])  & (dataHourly['Regime']=='Downtrend') & (dataHourly.index >= min_rows)#| (dataHourly['volume'] > 1.5*average_volume))
+        dataHourly['Sell_Signal'] = (dataHourly['close'] > dataHourly['Bollinger_High']) & (dataHourly['Regime']=='Uptrend') &   (dataHourly.index >= min_rows)#| (dataHourly['volume'] > 1.5*average_volume))
 
         dataHourly['Buy_Signal_Bollinger'] = dataHourly['close'] < dataHourly['Bollinger_Low']
-        dataHourly['Buy_Signal_Regime'] = dataHourly['Regime']=='Uptrend'
+        dataHourly['Buy_Signal_Regime'] = dataHourly['Regime']=='Uptrend' 
 
         dataHourly['Sell_Signal_Bollinger'] = (dataHourly['close'] > dataHourly['Bollinger_High'])
         dataHourly['Sell_Signal_Regime'] = (dataHourly['Regime']=='Downtrend')
@@ -262,7 +233,7 @@ class Trading:
                 print(f"Buying {shares_to_buy:.2f} shares at {row['close']} on {row['timestamp']}")
             
             elif row['Sell_Signal'] and position > 0:
-                    minimum_selling_price = buy_price
+                    minimum_selling_price = buy_price * 1.20
                     stop_loss_price = buy_price * self.stop_loss_threshold
         
                     current_price =  row['close']
@@ -299,32 +270,12 @@ def sell(self,asset, quantity, current_price):
         while True:
             time.sleep(10)
 
-
-
-
-
-
-if __name__ == "__main__":
-    trading = Trading()
-    #trading.requestAccount()
-    #trading.setMarketOrder("AAPL", 1)
-    #trading.getOrders()
-   # trading.getBalanceChange()
-
-    dataHourly = trading.getBollinger("TSLA")
-    ## AGI
-
+def showGraph(dataHourly):
+    
 
     x = dataHourly["timestamp"]
 
     useBolinger = False
-
-    
-    trades_df, final_value = trading.backtest_strategy(dataHourly)
-
-    # Optionally save trades to a file
-    trades_df.to_csv('trades.csv', index=False)
-
 
     plt.plot(x, dataHourly["close"], label="price")
     plt.plot(x, dataHourly["Bollinger_Low"], label="bol low")
@@ -339,3 +290,36 @@ if __name__ == "__main__":
 
     plt.legend()
     plt.show()
+
+
+
+
+if __name__ == "__main__":
+    trading = Trading()
+    #trading.requestAccount()
+    #trading.setMarketOrder("AAPL", 1)
+    #trading.getOrders()
+   # trading.getBalanceChange()
+
+    stocks = ["TSLA", "SBUX", "AAPL", "MSFT", "GOOGL", "AMZN", "NFLX", "NVDA", "JPM", "V", "DIS", "KO", "BRK.B", "JNJ", "PG", "XOM", "UNH"]
+
+
+    average = 0
+
+    for stock in stocks:
+        print(stock)
+        dataHourly = trading.getBollinger(stock)
+
+
+        trades_df, final_value = trading.backtest_strategy(dataHourly)
+        # showGraph(dataHourly)
+
+        average +=final_value
+    
+    average /= len(stocks)
+
+    print(f"Average value: {average}")
+
+    ## AGI
+
+
