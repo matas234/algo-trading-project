@@ -1,4 +1,5 @@
 
+from collections import deque
 import requests
 import os
 from dotenv import load_dotenv
@@ -12,6 +13,7 @@ from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 
+
 import ta
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -24,43 +26,92 @@ pd.set_option('display.max_colwidth', None) # Show full content of each column
 import ta.momentum
 import ta.trend
 import ta.volatility
+
 from datetime import datetime, time, timezone, timedelta
 
 # Load environment variables from .env file
 load_dotenv()
+
+class AlpacaTrading:
+        
+    def __init__(self, live=False, feed = "iex"):
+    
+        if live:
+            self.apiKey = os.getenv("API_KEY_ID")
+            self.secretKey = os.getenv("API_SECRET_KEY")
+            self.apiBase = "https://data.alpaca.markets"
+
+        else:
+            self.apiKey = os.getenv("PAPER_API_KEY_ID")
+            self.secretKey = os.getenv("PAPER_API_SECRET_KEY")
+            self.apiBase = "https://data.sandbox.alpaca.markets"
+
+        self.feed = feed
+
+    
+    def fetch_latest_trade(self, symbol):
+        url = f'{self.apiBase}/v2/stocks/trades/latest?symbols={symbol}&feed={self.feed}'
+        print(url)
+        
+        headers = {
+            "accept": "application/json",
+            'APCA-API-KEY-ID': self.apiKey,
+            'APCA-API-SECRET-KEY': self.secretKey
+        }
+
+        response = requests.get(url, headers=headers)
+
+        if response.status_code == 200:
+            return response.json()  # Returns the latest trade data
+        else:
+            print(f"Failed to fetch latest trade: {response.status_code} {response.text}")
+            return None
+        
+    
+
+
+
 
 class Trading:
 
     def __init__(self, live=False):
         
 
-
         if live:
             self.apiKey = os.getenv("API_KEY_ID")
             self.secretKey = os.getenv("API_SECRET_KEY")
-            self.apiBase = "https://api.alpaca.markets"
+            self.apiBase = "https://data.alpaca.markets"
 
         else:
             self.apiKey = os.getenv("PAPER_API_KEY_ID")
             self.secretKey = os.getenv("PAPER_API_SECRET_KEY")
-            self.apiBase = "https://paper-api.alpaca.markets"
+            self.apiBase = "https://data.sandbox.alpaca.markets"
 
-        
+        self.feed = "iex"
+            
+
         self.trading_client = TradingClient(self.apiKey, self.secretKey, paper = not live)
 
         self.historical_client = StockHistoricalDataClient(self.apiKey, self.secretKey)
+        
+
+
+
+        # self.rest_client = REST('API_KEY', 'SECRET_KEY', 'https://paper-api.alpaca.markets', api_version='v2')
 
         self.buy_price = {}
         self.stop_loss_threshold = 0.94 # 10% loss threshold
         self.minPercentage = 0 
-    
+
+        self.stockData = {}
+
+
         # Set up the headers with your API keys
         self.headers = {
             "APCA-API-KEY-ID": self.apiKey ,
             "APCA-API-SECRET-KEY": self.secretKey
         }
         
-
 
 
     def requestAccount(self):
@@ -113,8 +164,7 @@ class Trading:
 
             print(market_order)
 
-        
-
+    
     def getOrders(self):
         get_orders_data = GetOrdersRequest(
         status=QueryOrderStatus.CLOSED,
@@ -207,6 +257,24 @@ class Trading:
 
 
         return dataHourly
+    
+    
+    def fetchLatestAndSignal(self, ticker):
+        
+        if ticker not in self.stockData:
+            self.stockData[ticker] = deque()
+        
+        alpcaTraiding = AlpacaTrading(True)
+
+        bar = alpcaTraiding.fetch_latest_trade("AAPL")
+
+        self.stockData[ticker].append(bar)
+
+        if len(self.stockData[ticker]) > 200:
+            self.stockData[ticker].popleft()
+
+    
+
 
     def backtest_strategy(self, dataHourly, initial_cash=10000):
         cash = initial_cash  # Starting cash
@@ -262,12 +330,14 @@ class Trading:
 
 # def sell(self,asset, quantity, current_price):
 
-    def start(self, enableCrypto=True):
+    def start(self, enableCrypto=False, enableGraph = True):
         stocks = ["BILI","TSLA", "SBUX", "AAPL", "MSFT", "GOOGL", "AMZN", "NFLX", "JPM", "V", "DIS", "KO", "BRK.B", "JNJ", "PG", "XOM", "UNH"]
         crypto = ["BTC","ETH"]
 
         average = 0
         
+        self.stop_loss_threshold = 0.94
+
         if enableCrypto:
             self.stop_loss_threshold = 0.94
             self.minPercentage = 5
@@ -281,7 +351,8 @@ class Trading:
 
 
                 trades_df, final_value = self.backtest_strategy(dataHourly)
-                showGraph(dataHourly)
+                if enableGraph:
+                    showGraph(dataHourly)
 
                 average +=final_value
 
@@ -321,8 +392,10 @@ if __name__ == "__main__":
     #trading.requestAccount()
     #trading.setMarketOrder("AAPL", 1)
     #trading.getOrders()
-   # trading.getBalanceChange()
-    trading.start()
+    # trading.getBalanceChange()
+    # trading.start()
+
+    trading.fetchLatestAndSignal("AAPL")
 
 
     ## AGI
