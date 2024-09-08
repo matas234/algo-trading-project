@@ -1,5 +1,6 @@
 
 from collections import deque
+import pytz
 import requests
 import os
 from dotenv import load_dotenv
@@ -27,50 +28,12 @@ import ta.momentum
 import ta.trend
 import ta.volatility
 
+import time as t
+
 from datetime import datetime, time, timezone, timedelta
 
 # Load environment variables from .env file
 load_dotenv()
-
-class AlpacaTrading:
-        
-    def __init__(self, live=False, feed = "iex"):
-    
-        if live:
-            self.apiKey = os.getenv("API_KEY_ID")
-            self.secretKey = os.getenv("API_SECRET_KEY")
-            self.apiBase = "https://data.alpaca.markets"
-
-        else:
-            self.apiKey = os.getenv("PAPER_API_KEY_ID")
-            self.secretKey = os.getenv("PAPER_API_SECRET_KEY")
-            self.apiBase = "https://data.sandbox.alpaca.markets"
-
-        self.feed = feed
-
-    
-    def fetch_latest_trade(self, symbol):
-        url = f'{self.apiBase}/v2/stocks/trades/latest?symbols={symbol}&feed={self.feed}'
-        print(url)
-        
-        headers = {
-            "accept": "application/json",
-            'APCA-API-KEY-ID': self.apiKey,
-            'APCA-API-SECRET-KEY': self.secretKey
-        }
-
-        response = requests.get(url, headers=headers)
-
-        if response.status_code == 200:
-            return response.json()  # Returns the latest trade data
-        else:
-            print(f"Failed to fetch latest trade: {response.status_code} {response.text}")
-            return None
-        
-    
-
-
-
 
 class Trading:
 
@@ -89,15 +52,12 @@ class Trading:
 
         self.feed = "iex"
             
+        self.finnKey = os.getenv("FINN_HUB_KEY")
 
         self.trading_client = TradingClient(self.apiKey, self.secretKey, paper = not live)
 
         self.historical_client = StockHistoricalDataClient(self.apiKey, self.secretKey)
-        
 
-
-
-        # self.rest_client = REST('API_KEY', 'SECRET_KEY', 'https://paper-api.alpaca.markets', api_version='v2')
 
         self.buy_price = {}
         self.stop_loss_threshold = 0.94 # 10% loss threshold
@@ -105,12 +65,6 @@ class Trading:
 
         self.stockData = {}
 
-
-        # Set up the headers with your API keys
-        self.headers = {
-            "APCA-API-KEY-ID": self.apiKey ,
-            "APCA-API-SECRET-KEY": self.secretKey
-        }
         
 
 
@@ -164,7 +118,6 @@ class Trading:
 
             print(market_order)
 
-    
     def getOrders(self):
         get_orders_data = GetOrdersRequest(
         status=QueryOrderStatus.CLOSED,
@@ -258,22 +211,25 @@ class Trading:
 
         return dataHourly
     
-    
-    def fetchLatestAndSignal(self, ticker):
         
-        if ticker not in self.stockData:
-            self.stockData[ticker] = deque()
+    def get_latest_stock_data(self, symbol):
+
+        url = f'https://finnhub.io/api/v1/quote?symbol={symbol}&token={self.finnKey}'
+
+        response = requests.get(url)
         
-        alpcaTraiding = AlpacaTrading(True)
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                'current_price': data['c'],
+                'high_price': data['h'],
+                'low_price': data['l'],
+                'previous_close': data['pc']
+            }
+        else:
+            print(f"Error fetching data: {response.status_code}")
+            return None
 
-        bar = alpcaTraiding.fetch_latest_trade("AAPL")
-
-        self.stockData[ticker].append(bar)
-
-        if len(self.stockData[ticker]) > 200:
-            self.stockData[ticker].popleft()
-
-    
 
 
     def backtest_strategy(self, dataHourly, initial_cash=10000):
@@ -328,20 +284,11 @@ class Trading:
         
         return trades_df, final_value
 
-# def sell(self,asset, quantity, current_price):
 
     def start(self, enableCrypto=False, enableGraph = True):
         stocks = ["BILI","TSLA", "SBUX", "AAPL", "MSFT", "GOOGL", "AMZN", "NFLX", "JPM", "V", "DIS", "KO", "BRK.B", "JNJ", "PG", "XOM", "UNH"]
-        crypto = ["BTC","ETH"]
 
         average = 0
-        
-        self.stop_loss_threshold = 0.94
-
-        if enableCrypto:
-            self.stop_loss_threshold = 0.94
-            self.minPercentage = 5
-            stocks = crypto
 
         with open("out.txt", "w+") as file:
 
@@ -361,6 +308,83 @@ class Trading:
             average /= len(stocks)
 
             print(f"Average value: {average}")
+
+
+    def wait_until_market_open(self):
+
+        est_now = datetime.now(pytz.timezone('America/New_York'))
+        next_opening = est_now.replace(hour=9, minute=30, second=0, microsecond=0)
+        
+        if est_now.time() >= time(9, 30):
+            # If it's already past 9:30 AM, wait until the next day
+            next_opening += timedelta(days=1)
+        
+        # Calculate the duration to sleep
+        sleep_duration = (next_opening - est_now).total_seconds()
+        print(f"Sleeping for {sleep_duration} seconds until market opens.")
+        t.sleep(sleep_duration)
+
+        
+    def is_market_open(self):
+
+        market_open_time = time(9, 30)
+        market_close_time = time(16, 0)
+
+        utc_now = datetime.now(timezone.utc)
+        est_now = utc_now.astimezone(pytz.timezone('America/New_York'))
+
+        if market_open_time <= est_now.time() <= market_close_time:
+
+            clock = self.trading_client.get_clock()
+            return clock.is_open
+        else:
+            return False
+        
+    
+    def fetchLatestAndSignal(self, tickers):
+        for ticker in tickers:
+            print(self.get_latest_stock_data(ticker))
+        return
+
+    def liveStart(self):
+        stocks = ["BILI","TSLA", "SBUX", "AAPL", "MSFT", "GOOGL", "AMZN", "NFLX", "JPM", "V", "DIS", "KO", "BRK.B", "JNJ", "PG", "XOM", "UNH"]
+
+        while True:
+            # if not self.is_market_open():
+            #     print("Market is closed. Waiting until market opens.")
+            #     self.wait_until_market_open()
+            # else:
+                self.fetchLatestAndSignal(stocks)
+                t.sleep(60)
+    
+
+if __name__ == "__main__":
+    trading = Trading()
+    #trading.requestAccount()
+    #trading.setMarketOrder("AAPL", 1)
+    #trading.getOrders()
+    # trading.getBalanceChange()
+    # trading.start()
+
+    # trading.fetchLatestAndSignal(["TSLA"])
+    trading.liveStart()
+
+    ## AGI
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def showGraph(dataHourly):
@@ -383,21 +407,3 @@ def showGraph(dataHourly):
 
     plt.legend()
     plt.show()
-
-
-
-
-if __name__ == "__main__":
-    trading = Trading()
-    #trading.requestAccount()
-    #trading.setMarketOrder("AAPL", 1)
-    #trading.getOrders()
-    # trading.getBalanceChange()
-    # trading.start()
-
-    trading.fetchLatestAndSignal("AAPL")
-
-
-    ## AGI
-
-
