@@ -1,5 +1,6 @@
 
 from collections import deque
+import math
 import pytz
 import requests
 import os
@@ -58,6 +59,7 @@ class Trading:
 
         self.historical_client = StockHistoricalDataClient(self.apiKey, self.secretKey)
 
+        self.window_size = 200
 
         self.buy_price = {}
         self.stop_loss_threshold = 0.94 # 10% loss threshold
@@ -65,6 +67,10 @@ class Trading:
 
         self.stockData = {}
 
+        self.totalCash = 10000
+        self.cash = self.totalCash
+        self.position = {}
+        self.times = {}
         
 
 
@@ -212,25 +218,6 @@ class Trading:
         return dataHourly
     
         
-    def get_latest_stock_data(self, symbol):
-
-        url = f'https://finnhub.io/api/v1/quote?symbol={symbol}&token={self.finnKey}'
-
-        response = requests.get(url)
-        
-        if response.status_code == 200:
-            data = response.json()
-            return {
-                'current_price': data['c'],
-                'high_price': data['h'],
-                'low_price': data['l'],
-                'previous_close': data['pc']
-            }
-        else:
-            print(f"Error fetching data: {response.status_code}")
-            return None
-
-
 
     def backtest_strategy(self, dataHourly, initial_cash=10000):
         cash = initial_cash  # Starting cash
@@ -320,11 +307,15 @@ class Trading:
             next_opening += timedelta(days=1)
         
         # Calculate the duration to sleep
+        print(next_opening)
+
         sleep_duration = (next_opening - est_now).total_seconds()
         print(f"Sleeping for {sleep_duration} seconds until market opens.")
         t.sleep(sleep_duration)
 
-        
+    
+
+
     def is_market_open(self):
 
         market_open_time = time(9, 30)
@@ -339,24 +330,217 @@ class Trading:
             return clock.is_open
         else:
             return False
+
+    def get_latest_stock_data(self, ticker):
+
+        url = f'https://finnhub.io/api/v1/quote?symbol={ticker}&token={self.finnKey}'
+        response = requests.get(url)
         
-    
-    def fetchLatestAndSignal(self, tickers):
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                'timestamp': datetime.fromtimestamp(data['t'] , tz = pytz.utc),  # Add a timestamp for tracking
+                'close': data['c'],
+                'high': data['h'],
+                'low': data['l'],
+                'open': data['pc']
+            }
+        else:
+            print(f"Error fetching data: {response.status_code}")
+            return None
+
+    def initialize_stock_data(self, tickers):
         for ticker in tickers:
-            print(self.get_latest_stock_data(ticker))
-        return
+            # Define the time offset
+            offset = 75
+
+            request = StockBarsRequest(
+                symbol_or_symbols=ticker,
+                timeframe=TimeFrame.Minute,
+                start=datetime.now() - timedelta(days=5) - timedelta(minutes=offset),
+                end=datetime.now() - timedelta(minutes=offset),
+            )
+
+            # Fetch the stock bars data
+            bars = self.historical_client.get_stock_bars(request)
+
+            data = []
+            for bar in bars[ticker]:
+                data.append({
+                    'timestamp': bar.timestamp,
+                    'close': bar.close,
+                    'high': bar.high,
+                    'low': bar.low,
+                    'open': bar.open
+                })
+
+            df = pd.DataFrame(data)
+            
+            df = df.sort_values(by='timestamp').reset_index(drop=True)
+            
+            cutoff_time = datetime.strptime('20:00:01', '%H:%M:%S').time()
+
+            df['time_only'] = df['timestamp'].dt.time
+
+            df_filtered = df[df['time_only'] < cutoff_time]
+
+            df_filtered.drop(columns=['time_only'], inplace=True)
+
+            croppedDF = df_filtered.tail(self.window_size).copy()
+
+            self.stockData[ticker] = croppedDF
+
+            
+
+            
+    def formatDF(self, dataFrame):
+
+            dataFrame = dataFrame.copy()
+
+            bollinger = ta.volatility.BollingerBands(close=dataFrame['close'], window=20, window_dev=2)
+
+            #Calculate Bolllinger Bands for each hour
+            dataFrame['Bollinger_High'] = bollinger.bollinger_hband()
+            dataFrame['Bollinger_Med'] = bollinger.bollinger_mavg()
+            dataFrame['Bollinger_Low'] = bollinger.bollinger_lband()
+            dataFrame["SMA200"] = ta.trend.SMAIndicator(dataFrame['close'], window=200).sma_indicator()
+            dataFrame["RSI"] = ta.momentum.RSIIndicator(dataFrame['close'], window=200).rsi()
+
+            #dataFrame["MACD"] = ta.
+
+            #Drop NaNs created from not enough data to calc bollinger band
+            dataFrame.dropna(inplace=True) 
+
+            def identify_market_regime(row):
+                if row['close'] > row['SMA200'] and row['RSI'] > 40:  #row['close'] > row['200DMA'] and row['RSI'] > 50 and row['MACD'] > row['Signal Line']:
+                    return 'Uptrend'
+                elif row['close'] < row['SMA200'] and row['RSI'] < 60:   ##row['close'] < row['200DMA'] and row['RSI'] < 50 and row['MACD'] < row['Signal Line']:
+                    return 'Downtrend'
+                else:
+                    return 'Range'
+
+            dataFrame['Regime'] = dataFrame.apply(identify_market_regime, axis=1)
+
+            dataFrame['Buy_Signal'] =  (dataFrame['close'] < dataFrame['Bollinger_Low'])  & (dataFrame['Regime']=='Downtrend') #| (dataFrame['volume'] > 1.5*average_volume))
+            dataFrame['Sell_Signal'] = (dataFrame['close'] > dataFrame['Bollinger_High']) & (dataFrame['Regime']=='Uptrend') #| (dataFrame['volume'] > 1.5*average_volume))
+
+            dataFrame['Buy_Signal_Bollinger'] = dataFrame['close'] < dataFrame['Bollinger_Low']
+            dataFrame['Buy_Signal_Regime'] = dataFrame['Regime']=='Uptrend' 
+
+            dataFrame['Sell_Signal_Bollinger'] = (dataFrame['close'] > dataFrame['Bollinger_High'])
+            dataFrame['Sell_Signal_Regime'] = (dataFrame['Regime']=='Downtrend')
+
+
+            return dataFrame
+
+
+    def fetchLatestAndSignal(self, tickers):
+
+        for ticker in tickers:
+            # Ensure the ticker has been initialized
+            if ticker not in self.stockData:
+                self.initialize_stock_data([ticker])
+                df = self.stockData[ticker]
+                print(f"Initialised for {ticker}:")
+            
+            latest = self.get_latest_stock_data(ticker)
+            latest_df = pd.DataFrame([latest])
+
+            if latest:
+                df = self.stockData[ticker]
+
+
+                combined_df = pd.concat([df, latest_df], ignore_index=True)
+                combined_df = combined_df.dropna(axis=1, how='all')
+
+                #print(combined_df)
+
+                # Update the window with the combined DataFrame
+                df = combined_df.tail(self.window_size)
+
+                self.stockData[ticker] = df
+                
+                print(f"Updated data for {ticker}:")
+
+                formattedDF = self.formatDF(df)
+
+                selectedColumns = ["Buy_Signal", "Sell_Signal", "Buy_Signal_Regime", "Buy_Signal_Bollinger", "Sell_Signal_Regime", "Sell_Signal_Bollinger"]
+                print(formattedDF[selectedColumns])
+
+                self.makeTrade(ticker, formattedDF["Buy_Signal"], formattedDF["Sell_Signal"],  formattedDF["close"], formattedDF["timestamp"])
+
+
+    def makeTrade(self, ticker, buy, sell, close, timestamp):
+        
+        buy = buy == "True"
+
+        sell = sell == "True"
+
+        close = float(close)
+
+
+        if ticker not in self.times:
+            self.times[ticker] = 0
+
+        if ticker not in self.position:
+            self.position[ticker] = 0
+
+
+    
+        if buy and self.times[ticker] < 1:
+            
+            invest_amount = min(self.totalCash * 0.10, self.cash)
+
+            shares_to_buy = invest_amount / close
+
+            self.cash -= invest_amount
+
+            self.position[ticker] += shares_to_buy
+
+            self.times[ticker] +=1
+
+            self.buy_price[ticker] = close
+
+            with open("log.txt", "a") as file:
+                print(f"Buying {shares_to_buy:.2f} shares at {close} on {timestamp}", file=file)
+        
+
+        elif sell and self.position[ticker] > 0:
+            
+            minimum_selling_price = self.buy_price[ticker] 
+            stop_loss_price = self.buy_price[ticker] * self.stop_loss_threshold
+
+            current_price =  close
+
+            if current_price >= minimum_selling_price or current_price <= stop_loss_price:
+                sell_amount = self.position[ticker] * close 
+                self.cash += sell_amount
+                with open("log.txt", "a") as file:
+                    print(f"Selling {self.position[ticker]:.2f} shares at {close} on {timestamp}", file=file)
+
+                self.position[ticker] = 0  # Reset position after selling
+                self.times[ticker] = 0
+        
+
+
 
     def liveStart(self):
         stocks = ["BILI","TSLA", "SBUX", "AAPL", "MSFT", "GOOGL", "AMZN", "NFLX", "JPM", "V", "DIS", "KO", "BRK.B", "JNJ", "PG", "XOM", "UNH"]
-
+        trading.wipeLog()
         while True:
-            # if not self.is_market_open():
-            #     print("Market is closed. Waiting until market opens.")
-            #     self.wait_until_market_open()
-            # else:
+            if not self.is_market_open():
+                print("Market is closed. Waiting until market opens.")
+                self.wait_until_market_open()
+            else:
                 self.fetchLatestAndSignal(stocks)
                 t.sleep(60)
     
+
+    def wipeLog(self):
+        with open("log.txt", "w+") as file:
+            pass
+    
+
 
 if __name__ == "__main__":
     trading = Trading()
@@ -368,6 +552,11 @@ if __name__ == "__main__":
 
     # trading.fetchLatestAndSignal(["TSLA"])
     trading.liveStart()
+
+    #trading.wipeLog()
+    # trading.makeTrade("AAPL", "True", "False" ,"220.91", "2024-09-10 09:30:00-04:00")
+    # trading.makeTrade("AAPL", "True", "False" ,"220.91", "2024-09-10 09:30:00-04:00")
+    # trading.makeTrade("AAPL", "False", "True" ,"220.91", "2024-09-10 09:30:00-04:00")
 
     ## AGI
 
