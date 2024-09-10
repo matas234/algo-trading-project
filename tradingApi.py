@@ -501,6 +501,8 @@ class Trading:
 
             self.buy_price[ticker] = close
 
+            self.alpacaBuy(ticker, shares_to_buy)
+
             with open("log.txt", "a") as file:
                 print(f"Buying {shares_to_buy:.2f} shares at {close} on {timestamp}", file=file)
         
@@ -518,15 +520,87 @@ class Trading:
                 with open("log.txt", "a") as file:
                     print(f"Selling {self.position[ticker]:.2f} shares at {close} on {timestamp}", file=file)
 
+
+                self.alpacaSell(ticker)
+
                 self.position[ticker] = 0  # Reset position after selling
                 self.times[ticker] = 0
         
+
+    def alpacaBuy(self, ticker, sharesToBuy):
+        # Ensure the asset is tradable
+        if self.checkTradable(ticker):
+
+            market_order_data = MarketOrderRequest(
+                symbol=ticker,
+                qty=sharesToBuy,
+                side=OrderSide.BUY,
+                time_in_force=TimeInForce.DAY
+            )
+
+            # Submit the buy order
+            market_order = self.trading_client.submit_order(
+                order_data=market_order_data
+            )
+
+            print(market_order)
+        else:
+            print(f"{ticker} is not tradable.")
+
+    def alpacaSell(self, ticker):
+        # Get current position for the ticker
+        position = self.trading_client.get_open_position(ticker)
+        if position:
+            quantity = float(position.qty)
+
+            market_order_data = MarketOrderRequest(
+                symbol=ticker,
+                qty=quantity,
+                side=OrderSide.SELL,
+                time_in_force=TimeInForce.DAY
+            )
+
+            # Submit the sell order
+            market_order = self.trading_client.submit_order(
+                order_data=market_order_data
+            )
+
+            print(market_order)
+        else:
+            print(f"No open position in {ticker} to sell.")
+
+    def alpacaSellAll(self):
+        try:
+            # Get all open positions
+            positions = self.trading_client.get_all_positions()
+
+            # Loop through each position and sell all shares
+            for position in positions:
+                ticker = position.symbol
+                qty = abs(int(float(position.qty)))  # Convert qty to integer
+
+                # Create the market order request to sell the full quantity
+                market_order_data = MarketOrderRequest(
+                    symbol=ticker,
+                    qty=qty,
+                    side=OrderSide.SELL,
+                    time_in_force=TimeInForce.GTC
+                )
+
+                # Submit the sell order
+                self.trading_client.submit_order(order_data=market_order_data)
+                print(f"Submitted sell order for {qty} shares of {ticker}.")
+        
+        except Exception as e:
+            print(f"Error in selling positions: {e}")
 
 
 
     def liveStart(self):
         stocks = ["BILI","TSLA", "SBUX", "AAPL", "MSFT", "GOOGL", "AMZN", "NFLX", "JPM", "V", "DIS", "KO", "BRK.B", "JNJ", "PG", "XOM", "UNH"]
+        trading.alpacaSellAll()
         trading.wipeLog()
+
         while True:
             if not self.is_market_open():
                 print("Market is closed. Waiting until market opens.")
@@ -551,7 +625,14 @@ if __name__ == "__main__":
     # trading.start()
 
     # trading.fetchLatestAndSignal(["TSLA"])
+
+    # trading.alpacaSell("TSLA")
+    # trading.alpacaBuy("TSLA", 2)
+
+    # trading.alpacaSell("AAPL")
+
     trading.liveStart()
+
 
     #trading.wipeLog()
     # trading.makeTrade("AAPL", "True", "False" ,"220.91", "2024-09-10 09:30:00-04:00")
