@@ -1,6 +1,8 @@
 
 from collections import deque
+import json
 import math
+import random
 import pytz
 import requests
 import os
@@ -60,18 +62,12 @@ class Trading:
         self.historical_client = StockHistoricalDataClient(self.apiKey, self.secretKey)
 
         self.window_size = 200
+        self.totalCash = 100_000
 
-        self.buy_price = {}
         self.stop_loss_threshold = 0.94 # 10% loss threshold
         self.minPercentage = 0 
 
-        self.stockData = {}
-
-        self.totalCash = 10000
-        self.cash = self.totalCash
-        self.position = {}
-        self.times = {}
-        
+        self.loadFromFile()
 
 
     def requestAccount(self):
@@ -88,7 +84,7 @@ class Trading:
         else:
             print(f"Error: {response.status_code}")
             print(response.text)
-    
+
     def getBars(self, tickers):
         ur = f"{self.apiBase}v2/stocks/bars"
 
@@ -103,7 +99,6 @@ class Trading:
         found_asset = self.trading_client.get_asset(asset)
 
         if found_asset.tradable:
-            print(f'We can trade {asset}.')
             return True
 
         return False
@@ -133,8 +128,8 @@ class Trading:
 
         orders = self.trading_client.get_orders(filter=get_orders_data)
         print(f"Orders: {orders}")
-
     
+
     def getBollinger(self, ticker):
         offset = 240
         request = StockBarsRequest(
@@ -216,9 +211,7 @@ class Trading:
 
 
         return dataHourly
-    
         
-
     def backtest_strategy(self, dataHourly, initial_cash=10000):
         cash = initial_cash  # Starting cash
         position = 0  # No position initially
@@ -271,7 +264,6 @@ class Trading:
         
         return trades_df, final_value
 
-
     def start(self, enableCrypto=False, enableGraph = True):
         stocks = ["BILI","TSLA", "SBUX", "AAPL", "MSFT", "GOOGL", "AMZN", "NFLX", "JPM", "V", "DIS", "KO", "BRK.B", "JNJ", "PG", "XOM", "UNH"]
 
@@ -295,39 +287,96 @@ class Trading:
             average /= len(stocks)
 
             print(f"Average value: {average}")
-
-
-    def wait_until_market_open(self):
-
-        est_now = datetime.now(pytz.timezone('America/New_York'))
-        next_opening = est_now.replace(hour=9, minute=30, second=0, microsecond=0)
-        
-        if est_now.time() >= time(9, 30):
-            # If it's already past 9:30 AM, wait until the next day
-            next_opening += timedelta(days=1)
-        
-        # Calculate the duration to sleep
-        print(next_opening)
-
-        sleep_duration = (next_opening - est_now).total_seconds()
-        print(f"Sleeping for {sleep_duration} seconds until market opens.")
-        t.sleep(sleep_duration)
-
     
 
+    def loadFromFile(self):
+        file_path = "data.json"
+        
+        try:
+            if os.path.exists(file_path):
+                with open(file_path, 'r') as f:
+                    data = json.load(f)
+                
+                self.buy_price = data.get('buy_price', {})
+                self.cash = data.get('cash', self.totalCash)
+                self.position = data.get('position', {})
+                self.times = data.get('times', {})
+                
+                # Convert the JSON string back to DataFrames
+                self.stockData = {key: pd.read_json(value, orient='records') for key, value in data.get('stockData', {}).items()}
+                
+                print("Data loaded from data.json")
+            else:
+                raise FileNotFoundError("File not found. Initializing with default values.")
+        
+        except (json.JSONDecodeError, KeyError, FileNotFoundError, ValueError) as e:
+            # Handle any error by resetting to default values
+            print(f"Error loading data: {e}. Initializing with default values and deleting {file_path}.")
+            
+            self.buy_price = {}
+            self.stockData = {}
+            self.cash = self.totalCash
+            self.position = {}
+            self.times = {}
+            
+            # If the file exists and is corrupted, delete it
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                print(f"Deleted corrupted file: {file_path}")
+
+    def saveToFile(self):
+        # Convert DataFrames in stockData to JSON using the orient='records' format
+        stockData_jsonable = {key: df.to_json(orient='records') for key, df in self.stockData.items()}
+        
+        data = {
+            'buy_price': self.buy_price,
+            'stockData': stockData_jsonable,
+            'cash': self.cash,
+            'position': self.position,
+            'times': self.times
+        }
+        
+        with open("data.json", 'w') as f:
+            json.dump(data, f, indent=4)  
+
+        print("Data saved to data.json")
+
+
+    def removeFile(self):
+        file_path = "data.json"
+        
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            print(f"{file_path} has been deleted.")
+        else:
+            print(f"{file_path} does not exist.")
+
+
+    def wipeLog(self):
+        with open("log.txt", "w") as file:
+            pass
+
+    def wait_until_market_open(self):
+        clock = self.trading_client.get_clock()
+
+        next_opening = clock.next_open.astimezone(pytz.timezone('America/New_York'))
+
+        est_now = datetime.now(pytz.timezone('America/New_York'))
+
+        sleep_duration = (next_opening - est_now).total_seconds()
+
+        if sleep_duration > 0:
+            print(f"Market opens at {next_opening}. Sleeping for {sleep_duration} seconds.")
+            t.sleep(sleep_duration)
+        else:
+            print("Market is already open.")
 
     def is_market_open(self):
 
-        market_open_time = time(9, 30)
-        market_close_time = time(16, 0)
+        clock = self.trading_client.get_clock()
 
-        utc_now = datetime.now(timezone.utc)
-        est_now = utc_now.astimezone(pytz.timezone('America/New_York'))
-
-        if market_open_time <= est_now.time() <= market_close_time:
-
-            clock = self.trading_client.get_clock()
-            return clock.is_open
+        if clock.is_open:
+            return True
         else:
             return False
 
@@ -339,7 +388,7 @@ class Trading:
         if response.status_code == 200:
             data = response.json()
             return {
-                'timestamp': datetime.fromtimestamp(data['t'] , tz = pytz.utc),  # Add a timestamp for tracking
+                'timestamp': datetime.fromtimestamp(data['t'] , tz = pytz.utc), 
                 'close': data['c'],
                 'high': data['h'],
                 'low': data['l'],
@@ -351,8 +400,7 @@ class Trading:
 
     def initialize_stock_data(self, tickers):
         for ticker in tickers:
-            # Define the time offset
-            offset = 75
+            offset = 90
 
             request = StockBarsRequest(
                 symbol_or_symbols=ticker,
@@ -453,7 +501,6 @@ class Trading:
                 combined_df = pd.concat([df, latest_df], ignore_index=True)
                 combined_df = combined_df.dropna(axis=1, how='all')
 
-                #print(combined_df)
 
                 # Update the window with the combined DataFrame
                 df = combined_df.tail(self.window_size)
@@ -467,17 +514,12 @@ class Trading:
                 selectedColumns = ["Buy_Signal", "Sell_Signal", "Buy_Signal_Regime", "Buy_Signal_Bollinger", "Sell_Signal_Regime", "Sell_Signal_Bollinger"]
                 print(formattedDF[selectedColumns])
 
-                self.makeTrade(ticker, formattedDF["Buy_Signal"], formattedDF["Sell_Signal"],  formattedDF["close"], formattedDF["timestamp"])
+                self.makeTrade(ticker, formattedDF["Buy_Signal"][200], formattedDF["Sell_Signal"][200],  formattedDF["close"][200], formattedDF["timestamp"][200])
 
 
-    def makeTrade(self, ticker, buy, sell, close, timestamp):
-        
-        buy = buy == "True"
-
-        sell = sell == "True"
+    def makeTrade(self, ticker, buy, sell, close, timestamp):    
 
         close = float(close)
-
 
         if ticker not in self.times:
             self.times[ticker] = 0
@@ -485,11 +527,9 @@ class Trading:
         if ticker not in self.position:
             self.position[ticker] = 0
 
-
-    
         if buy and self.times[ticker] < 1:
             
-            invest_amount = min(self.totalCash * 0.10, self.cash)
+            invest_amount = min(self.totalCash * (1/len(self.stocks)), self.cash)
 
             shares_to_buy = invest_amount / close
 
@@ -504,7 +544,7 @@ class Trading:
             self.alpacaBuy(ticker, shares_to_buy)
 
             with open("log.txt", "a") as file:
-                print(f"Buying {shares_to_buy:.2f} shares at {close} on {timestamp}", file=file)
+                print(f"Buying {shares_to_buy:.2f} shares of {ticker} at {close} on {timestamp}", file=file)
         
 
         elif sell and self.position[ticker] > 0:
@@ -518,7 +558,7 @@ class Trading:
                 sell_amount = self.position[ticker] * close 
                 self.cash += sell_amount
                 with open("log.txt", "a") as file:
-                    print(f"Selling {self.position[ticker]:.2f} shares at {close} on {timestamp}", file=file)
+                    print(f"Selling {self.position[ticker]:.2f} shares of {ticker} at {close} on {timestamp}", file=file)
 
 
                 self.alpacaSell(ticker)
@@ -528,46 +568,56 @@ class Trading:
         
 
     def alpacaBuy(self, ticker, sharesToBuy):
-        # Ensure the asset is tradable
-        if self.checkTradable(ticker):
+        try:
+            # Ensure the asset is tradable
+            if self.checkTradable(ticker) and sharesToBuy > 0:
 
-            market_order_data = MarketOrderRequest(
-                symbol=ticker,
-                qty=sharesToBuy,
-                side=OrderSide.BUY,
-                time_in_force=TimeInForce.DAY
-            )
+                market_order_data = MarketOrderRequest(
+                    symbol=ticker,
+                    qty=sharesToBuy,
+                    side=OrderSide.BUY,
+                    time_in_force=TimeInForce.DAY
+                )
 
-            # Submit the buy order
-            market_order = self.trading_client.submit_order(
-                order_data=market_order_data
-            )
+                # Submit the buy order
+                market_order = self.trading_client.submit_order(
+                    order_data=market_order_data
+                )
 
-            print(market_order)
-        else:
-            print(f"{ticker} is not tradable.")
+                print(market_order)
+            else:
+                print(f"{ticker} is not tradable or there is no money to buy the stock.")
+
+        except Exception as e:
+            print(f"An error occurred while trying to buy {ticker}: {str(e)}")
+
 
     def alpacaSell(self, ticker):
-        # Get current position for the ticker
-        position = self.trading_client.get_open_position(ticker)
-        if position:
-            quantity = float(position.qty)
+        try:
+            # Get current position for the ticker
+            position = self.trading_client.get_open_position(ticker)
+            if position:
+                quantity = float(position.qty)
 
-            market_order_data = MarketOrderRequest(
-                symbol=ticker,
-                qty=quantity,
-                side=OrderSide.SELL,
-                time_in_force=TimeInForce.DAY
-            )
+                market_order_data = MarketOrderRequest(
+                    symbol=ticker,
+                    qty=quantity,
+                    side=OrderSide.SELL,
+                    time_in_force=TimeInForce.DAY
+                )
 
-            # Submit the sell order
-            market_order = self.trading_client.submit_order(
-                order_data=market_order_data
-            )
+                # Submit the sell order
+                market_order = self.trading_client.submit_order(
+                    order_data=market_order_data
+                )
 
-            print(market_order)
-        else:
-            print(f"No open position in {ticker} to sell.")
+                print(market_order)
+            else:
+                print(f"No open position in {ticker} to sell.")
+        
+        except Exception as e:
+            print(f"An error occurred while trying to sell {ticker}: {str(e)}")
+
 
     def alpacaSellAll(self):
         try:
@@ -577,14 +627,14 @@ class Trading:
             # Loop through each position and sell all shares
             for position in positions:
                 ticker = position.symbol
-                qty = abs(int(float(position.qty)))  # Convert qty to integer
+                qty = float(position.qty) 
 
                 # Create the market order request to sell the full quantity
                 market_order_data = MarketOrderRequest(
                     symbol=ticker,
                     qty=qty,
                     side=OrderSide.SELL,
-                    time_in_force=TimeInForce.GTC
+                    time_in_force="day"
                 )
 
                 # Submit the sell order
@@ -595,29 +645,37 @@ class Trading:
             print(f"Error in selling positions: {e}")
 
 
+    def liveStart(self, reset = False):
+        self.stocks = [
+            "BILI", "LLY", "AAPL", "MSFT", "GOOGL", "AMZN", "NFLX", "JPM", "V", "DIS", 
+            "KO", "BRK.B", "JNJ", "PG", "XOM", "UNH", "TSLA", "NVDA", "ADBE", "META"
+        ]
+        
+        if reset:
+            trading.alpacaSellAll()
+            trading.wipeLog()
+            trading.removeFile()
+            t.sleep(60)
 
-    def liveStart(self):
-        stocks = ["BILI","TSLA", "SBUX", "AAPL", "MSFT", "GOOGL", "AMZN", "NFLX", "JPM", "V", "DIS", "KO", "BRK.B", "JNJ", "PG", "XOM", "UNH"]
-        trading.alpacaSellAll()
-        trading.wipeLog()
+            trading.loadFromFile()
 
+        
         while True:
             if not self.is_market_open():
+                self.saveToFile()
                 print("Market is closed. Waiting until market opens.")
                 self.wait_until_market_open()
-            else:
-                self.fetchLatestAndSignal(stocks)
                 t.sleep(60)
-    
-
-    def wipeLog(self):
-        with open("log.txt", "w+") as file:
-            pass
+            else:
+                self.fetchLatestAndSignal(self.stocks)
+                t.sleep(60)
     
 
 
 if __name__ == "__main__":
     trading = Trading()
+    # trading.wipeLog()
+
     #trading.requestAccount()
     #trading.setMarketOrder("AAPL", 1)
     #trading.getOrders()
@@ -633,27 +691,12 @@ if __name__ == "__main__":
 
     trading.liveStart()
 
-
     #trading.wipeLog()
     # trading.makeTrade("AAPL", "True", "False" ,"220.91", "2024-09-10 09:30:00-04:00")
     # trading.makeTrade("AAPL", "True", "False" ,"220.91", "2024-09-10 09:30:00-04:00")
     # trading.makeTrade("AAPL", "False", "True" ,"220.91", "2024-09-10 09:30:00-04:00")
 
     ## AGI
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
