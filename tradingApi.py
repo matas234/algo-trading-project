@@ -662,13 +662,13 @@ class Trading:
         
         while True:
             if not self.is_market_open():
-                self.saveToFile()
                 print("Market is closed. Waiting until market opens.")
                 self.wait_until_market_open()
                 t.sleep(60)
             else:
                 self.fetchLatestAndSignal(self.stocks)
                 t.sleep(60)
+                self.saveToFile()
     
 
 
