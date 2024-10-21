@@ -1,4 +1,4 @@
-# Algorihtmic trading project
+# Algorithmic trading project
 Implementation of a classic algorithmic trading strategy in Python using the Alpaca API for backtesting and livetesting.
 
 
