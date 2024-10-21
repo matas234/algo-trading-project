@@ -1,5 +1,5 @@
 # trading
-Algorithmic Trading
+Implementation of a classic algorithmic trading strategy in Python using the Alpaca API for backtesting and livetesting.
 
 
 # Setup
